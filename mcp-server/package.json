@@ -1,24 +1,49 @@
 {
-  "name": "autotest-flow-mcp-server",
+  "name": "@chaoxing/autotest-flow",
   "version": "0.1.0",
-  "description": "AutoTest-flow MCP Server — 面向自动化测试工程师的 AI 工作流服务",
+  "private": false,
+  "description": "AutoTestFlow — PM 需求读取与自动化测试 AI 工作流（Cursor / Codex）",
   "type": "module",
   "main": "src/index.js",
+  "bin": {
+    "autotest-flow": "bin/autotest-flow.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "scripts",
+    "package-assets",
+    "README.md",
+    ".env.example"
+  ],
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "setup": "node scripts/setup.js",
+    "setup:codex": "node scripts/setup-codex.js",
+    "debug:read-pm-issue": "node scripts/debug-read-pm-issue.js",
+    "prepare:package": "node scripts/prepare-package.js",
+    "prepack": "npm run prepare:package",
+    "doctor": "node bin/autotest-flow.js doctor",
+    "test": "node --test test/**/*.test.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "registry": "http://npm.ans.chaoxing.com/"
   },
   "keywords": [
     "mcp",
     "autotest",
     "playwright",
-    "cursor"
+    "puppeteer",
+    "cursor",
+    "codex"
   ],
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
   },
-  "author": ""
+  "author": "Chaoxing"
 }

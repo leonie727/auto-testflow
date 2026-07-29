@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "autotest-flow": {
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/mcp-server/src/index.js"
+      ]
+    }
+  }
+}

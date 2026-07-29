@@ -1,43 +1,32 @@
-# AutoTest-flow MCP Server
+# AutoTestFlow npm 包
 
-基于 JavaScript 实现的 MCP Server，为 Cursor AI 提供自动化测试工作流能力。
+面向 Cursor / Codex 的 MCP + Skills CLI。
 
-## 技术要求
+## 组员安装
 
-- Node.js >= 18
-- 纯 JavaScript（不使用 TypeScript）
-- 依赖：`@modelcontextprotocol/sdk`
+```bash
+npx --yes --registry=http://npm.ans.chaoxing.com/ \
+  @chaoxing/autotest-flow@beta install
+```
 
-## 安装与启动
+安装时交互输入个人 `PM_API_KEY`（不回显完整密钥，不支持命令行传参）。
+
+## 常用命令
+
+```bash
+autotest-flow doctor
+autotest-flow update
+autotest-flow uninstall
+autotest-flow help
+```
+
+## 开发模式
 
 ```bash
 npm install
-npm start
+npm run prepare:package
+npm test
+node bin/autotest-flow.js mcp
 ```
 
-## 目录说明
-
-```
-mcp-server
-├── package.json
-├── src/
-│   └── index.js    # MCP Server 入口（stdio）
-└── README.md
-```
-
-## 当前状态
-
-仅完成服务骨架：创建 MCP Server 并连接 stdio transport。
-
-尚未注册任何工具，业务逻辑待后续阶段实现。
-
-## 后续规划
-
-| 能力 | 说明 |
-|------|------|
-| 读取 PM 需求 | 接入需求文档来源 |
-| 分析影响范围 | 评估需求对测试的影响 |
-| 关联自动化代码 | 映射需求与测试用例 |
-| 执行 Playwright | 触发自动化测试 |
-| 失败原因分析 | 解析失败日志与堆栈 |
-| 生成测试报告 | 输出结构化报告 |
+密钥加载顺序：`process.env` → `AUTOTEST_FLOW_HOME/.env` → `~/.autotest-flow/.env` → 本目录 `.env`。

@@ -1,43 +1,24 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { loadEnvFile, sanitizeErrorMessage } from './config/env.js';
+import { startMcpServer } from './server.js';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const server = new McpServer({
-  name: 'autotest-flow',
-  version: '0.1.0',
-});
-
-server.registerTool(
-  'auto_test_flow_status',
-  {
-    description: '获取 AutoTestFlow MCP Server 的运行状态和基础信息。',
-  },
-  async () => ({
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify(
-          {
-            name: 'AutoTestFlow',
-            version: '0.1.0',
-            status: 'running',
-            runtime: 'Node.js',
-            language: 'JavaScript',
-          },
-          null,
-          2
-        ),
-      },
-    ],
-  })
-);
+loadEnvFile();
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('AutoTestFlow MCP Server started');
+  await startMcpServer();
 }
 
-main().catch((error) => {
-  console.error('Failed to start AutoTestFlow MCP Server:', error);
-  process.exit(1);
-});
+const isDirect =
+  process.argv[1] &&
+  pathToFileURL(path.resolve(process.argv[1])).href ===
+    pathToFileURL(fileURLToPath(import.meta.url)).href;
+
+if (isDirect) {
+  main().catch((error) => {
+    console.error('Failed to start AutoTestFlow MCP Server:', sanitizeErrorMessage(error));
+    process.exit(1);
+  });
+}
+
+export { startMcpServer };

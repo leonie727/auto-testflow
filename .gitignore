@@ -4,3 +4,8 @@ npm-debug.log*
 *.log
 .env
 .env.*
+!.env.example
+!mcp-server/.env.example
+*.tgz
+mcp-server/.cursor/
+mcp-server/.codex/
