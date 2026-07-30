@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { runCommand, redact } from './process.js';
+import { runNpm, redact } from './process.js';
 import {
   getRuntimePrefix,
   getRuntimePackageRoot,
@@ -33,8 +33,7 @@ export function installRuntime(env = process.env, options = {}) {
     return { prefix, cliPath: getStableCliPath(env), mode: 'copy' };
   }
 
-  const result = runCommand(
-    'npm',
+  const result = runNpm(
     [
       'install',
       '--prefix',
@@ -43,7 +42,7 @@ export function installRuntime(env = process.env, options = {}) {
       `--registry=${registry}`,
       packageSpec,
     ],
-    { env, shell: process.platform === 'win32' }
+    { env }
   );
 
   if (result.error || result.status !== 0) {

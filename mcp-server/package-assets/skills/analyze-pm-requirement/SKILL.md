@@ -19,17 +19,23 @@ project code during the analysis phase.
 ## Workflow
 
 1. Call MCP tool `read_pm_issue` with the user-provided issue id or URL.
-2. Summarize the requirement: title, status, key steps, roles, and acceptance
+2. Review `externalReferences`. For allowed links, call `read_pm_reference`.
+   Merge successful reference content into analysis. Failed references must be
+   listed with reasons and must not block PM body analysis.
+3. Summarize the requirement: title, status, key steps, roles, and acceptance
    signals present in the returned fields. Do not invent missing fields.
-3. Locate the related automation project and existing cases (Playwright and/or
+4. Locate the related automation project and existing cases (Playwright and/or
    Puppeteer). Prefer files already named after the PM id when present.
-4. Identify the project and framework from `package.json` and entrypoints. If the
+5. Identify the project and framework from `package.json` and entrypoints. If the
    target is `fanyajw-auto-tests`, read `references/projects/fanyajw-auto-tests.md`.
    For Puppeteer in general, also use `references/frameworks/puppeteer.md`.
-5. Diff requirement items against existing coverage. Mark each item as covered,
+6. Diff requirement items against existing coverage. Mark each item as covered,
    partial, missing, or out of scope.
-6. Output using the template below (including project identification fields).
-7. Stop after the plan unless the user explicitly asks to implement.
+7. Output using the template below (including project identification fields).
+8. Optionally prepare a PM comment draft (需求分析完成 / 待产品确认等). Show the
+   full draft. Call `add_pm_comment` only after the user explicitly confirms with
+  「确认回填」or「提交评论」. Saying「处理这个PM」is not confirmation.
+9. Stop after the plan unless the user explicitly asks to implement.
 
 ## Rules
 
@@ -41,6 +47,7 @@ project code during the analysis phase.
 - If analysis depends on system/data/environment/script issues, say so before
   proposing code edits.
 - Do not run git commit or push unless the user confirms.
+- Do not treat every PM as a诊断流程; route via `process-pm` when type is unclear.
 
 ## Output Template
 
@@ -69,3 +76,7 @@ Numbered checklist.
 
 ### Verification
 Syntax checks and/or targeted tests to run after implementation.
+
+### Suggested PM comment (draft only)
+Show full draft text. Do not call `add_pm_comment` until the user explicitly
+replies with 确认回填 / 提交评论.

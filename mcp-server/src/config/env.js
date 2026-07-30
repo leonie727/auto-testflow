@@ -12,21 +12,14 @@ const DEFAULT_PM_BASE_URL = 'http://pm.chaoxing.com';
 /**
  * 按优先级加载 PM 配置（不覆盖已存在的 process.env）：
  * 1. process.env（已有）
- * 2. AUTOTEST_FLOW_HOME 下 .env
- * 3. ~/.autotest-flow/.env
- * 4. 开发项目 mcp-server/.env
+ * 2. ~/.autotest-flow/.env（或 AUTOTEST_FLOW_HOME/.env）
+ * 3. 开发项目 mcp-server/.env
  *
  * 启动时不强制要求 PM_API_KEY。
  */
 export function loadEnvFile() {
-  const candidates = [];
-
-  if (process.env.AUTOTEST_FLOW_HOME) {
-    candidates.push(path.join(path.resolve(process.env.AUTOTEST_FLOW_HOME), '.env'));
-  }
-
-  candidates.push(getUserEnvPath());
-  candidates.push(getDevProjectEnvPath());
+  // 优先级：process.env（apply 不覆盖）→ 用户 ~/.autotest-flow/.env → mcp-server/.env
+  const candidates = [getUserEnvPath(), getDevProjectEnvPath()];
 
   const seen = new Set();
   for (const filePath of candidates) {

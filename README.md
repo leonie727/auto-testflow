@@ -8,16 +8,18 @@ AutoTestFlow 由三部分组成：
 
 1. **MCP Server**（`mcp-server/`）：读取 PM，并提供外部工具能力（如 `read_pm_issue`）。
 2. **Agent Skills**（`.agents/skills/`）：定义需求分析和测试实现工作流。
-3. **Host Adapters**：分别接入 Cursor（`.cursor/mcp.json`）与 Codex（`npm run setup:codex`）。
+3. **Host Adapters**：分别接入 Cursor 与 Codex。
 
-同一套 MCP Server 和 Skill **不需要开发两份**；平台差异只在适配层。
+同一套 MCP Server 和 Skill **不需要开发两份**；平台差异只体现在适配层。
 
 ## 目录结构
 
 ```
 AutoTestFlow
 ├── .agents/skills/          # 公共 Skills（Cursor / Codex 共用）
-├── .cursor/mcp.json         # Cursor 适配
+├── .cursor/mcp.json         # 工作区 Cursor 适配（可选）
+├── scripts/setup.js         # 根目录一键安装
+├── scripts/doctor.js        # 根目录健康检查
 ├── AGENTS.md                # 公共项目规范
 ├── docs/
 │   ├── install-cursor.md
@@ -26,78 +28,66 @@ AutoTestFlow
 └── README.md
 ```
 
-## 能力概览
+## 快速开始（同事推荐）
 
-- 读取超星 PM 需求并结构化（MCP：`read_pm_issue`）
-- 分析需求影响范围与测试点（Skill：`analyze-pm-requirement`）
-- 确认后实现 JavaScript 自动化脚本（Skill：`implement-pm-requirement`）
-- 后续可扩展：执行 Playwright/Puppeteer、失败分析、报告生成
+在仓库根目录执行一次：
 
-## 公共 Skills
-
-位于 `.agents/skills/`，Cursor 与 Codex 共用。
-
-### analyze-pm-requirement
-
-只做需求分析与测试点/修改方案，不直接改测试代码。分析结果需标明项目名称、框架、识别依据与推荐运行方式。
-
-### implement-pm-requirement
-
-读取 PM → 分析测试项目 → 输出实施方案 → **用户确认后** → 编写 JavaScript 脚本 → 语法检查或目标测试 → 输出结果。
-
-修改前须识别 Playwright / Puppeteer；若目标为 `fanyajw-auto-tests`，须遵循：
-
-- `references/projects/fanyajw-auto-tests.md`
-- `references/frameworks/puppeteer.md`
-
-**Cursor 示例：**
-
-```text
-使用 implement-pm-requirement 分析并实现 PM 470985。
-先输出实施方案，等我确认后再修改代码。
+```bash
+npm run setup
 ```
 
-**Codex 示例：**
+终端交互完成：依赖安装 → API Key 输入验证 → Cursor 配置 → Codex 配置 → Skills 安装 → doctor 检查。
 
-```text
-$implement-pm-requirement
-根据 PM 470985 实现自动化测试，先给出方案。
+检查：
+
+```bash
+npm run doctor
 ```
 
-未明确确认（如「确认实施」「按方案修改」「开始编写」「执行这个方案」）前，不会修改业务测试代码。
+### API Key 保存位置
 
-## 快速开始
+- 优先：`~/.autotest-flow/.env`
+- 开发兼容：`mcp-server/.env`
+- 加载顺序：`process.env` → `~/.autotest-flow/.env` → `mcp-server/.env`
 
-### Cursor
+密钥不会写入 MCP 配置，也不会打印到终端。
 
-见 [docs/install-cursor.md](docs/install-cursor.md)
+### Codex 无 CLI 时
 
-### Codex
+不会失败退出；自动安全合并 `$CODEX_HOME/config.toml` 或 `~/.codex/config.toml`。
 
-见 [docs/install-codex.md](docs/install-codex.md)
-
-### 组员一键安装（推荐）
+## 组员 npm 包安装（可选）
 
 ```bash
 npx --yes --registry=http://npm.ans.chaoxing.com/ \
   @chaoxing/autotest-flow@beta install
 ```
 
-安装时交互输入个人 `PM_API_KEY`，自动配置 Cursor / Codex MCP 与 Skills。
+## 公共 Skills
 
-### 开发者本地
+### process-pm
 
-```bash
-cd mcp-server
-npm install
-npm run setup
-# 编辑 .env，填写个人 PM_API_KEY
-```
+先读取 PM 及关联资料，判断任务类型后选择对应流程。禁止默认把所有 PM 称为诊断流程。
+
+- 新需求 / 新测试用例 → `implement-pm-requirement`（需求分析与脚本实现流程）
+- 已有脚本失败 / 系统异常验证 → `auto-test-script-development`
+
+### analyze-pm-requirement
+
+只做需求分析与测试点/修改方案，不直接改测试代码。
+
+### implement-pm-requirement
+
+读取 PM → 分析 → 输出方案 → **用户确认后** → 编写 JavaScript 脚本。默认只生成 PM 评论草稿，明确确认回填后才写入。
+
+### auto-test-script-development
+
+已有脚本失败与系统异常验证：分类 → 记录 → 通报；仅 `SCRIPT_CONFIRMED` 后最小修补。支持 `save_test_issue_record` 脱敏落盘。
 
 ## 安全
 
-- `PM_API_KEY` 仅保存在本地 `mcp-server/.env`
-- 不写入 `.cursor/mcp.json`、Codex MCP 配置、文档示例真值或源码
+- `PM_API_KEY` 仅保存在本地用户配置或开发 `.env`
+- 不写入 `.cursor/mcp.json`、Codex 配置、文档示例真值或源码
 - 不得输出到日志、聊天、报告
 
 ## 规范

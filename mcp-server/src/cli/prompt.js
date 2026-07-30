@@ -51,6 +51,16 @@ export function writeEnvFile(filePath, values) {
 }
 
 /**
+ * 合并写入 .env：保留未提及的键。
+ * @param {string} filePath
+ * @param {Record<string, string>} values
+ */
+export function mergeEnvFile(filePath, values) {
+  const current = readEnvFile(filePath);
+  writeEnvFile(filePath, { ...current, ...values });
+}
+
+/**
  * @param {string} filePath
  * @returns {Record<string, string>}
  */
@@ -75,12 +85,36 @@ export function applyEnvFile(filePath) {
 }
 
 /**
- * 密码式输入：不回显完整密钥（仅可选星号）。
- * 非 TTY 时从 stdin 读一行（测试用）。
+ * 优先使用 @inquirer/prompts；不可用时回退到本地实现。
+ * @returns {Promise<{ password: Function, confirm: Function }|null>}
+ */
+async function loadInquirer() {
+  try {
+    const mod = await import('@inquirer/prompts');
+    return {
+      password: mod.password,
+      confirm: mod.confirm,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 密码式输入：隐藏输入内容。不通过命令行参数传递。
  * @param {string} message
  * @returns {Promise<string>}
  */
 export async function promptSecret(message) {
+  const inquirer = await loadInquirer();
+  if (inquirer?.password && process.stdin.isTTY) {
+    const value = await inquirer.password({
+      message: message.replace(/:\s*$/, ''),
+      mask: '*',
+    });
+    return String(value || '').trim();
+  }
+
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -95,10 +129,18 @@ export async function promptSecret(message) {
     });
   }
 
+  return promptSecretRaw(message);
+}
+
+/**
+ * @param {string} message
+ * @returns {Promise<string>}
+ */
+function promptSecretRaw(message) {
   return new Promise((resolve, reject) => {
     const stdin = process.stdin;
     const stdout = process.stdout;
-    stdout.write(message);
+    stdout.write(message.endsWith(' ') ? message : `${message} `);
     stdin.setRawMode(true);
     stdin.resume();
     stdin.setEncoding('utf8');
@@ -150,6 +192,16 @@ export async function promptSecret(message) {
  * @returns {Promise<boolean>}
  */
 export async function promptConfirm(message, defaultYes = true) {
+  const inquirer = await loadInquirer();
+  if (inquirer?.confirm && process.stdin.isTTY) {
+    return Boolean(
+      await inquirer.confirm({
+        message,
+        default: defaultYes,
+      })
+    );
+  }
+
   const hint = defaultYes ? 'Y/n' : 'y/N';
   const rl = readline.createInterface({
     input: process.stdin,

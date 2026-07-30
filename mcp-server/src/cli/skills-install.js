@@ -6,7 +6,12 @@ import {
   getPackageAssetsDir,
 } from './paths.js';
 
-const OWN_SKILLS = ['analyze-pm-requirement', 'implement-pm-requirement'];
+const OWN_SKILLS = [
+  'analyze-pm-requirement',
+  'implement-pm-requirement',
+  'process-pm',
+  'auto-test-script-development',
+];
 
 /**
  * @param {string} src
@@ -26,8 +31,10 @@ function copyDir(src, dest) {
 }
 
 /**
+ * 原地替换自有 Skill，不留下 .bak 重复目录。
  * @param {string} skillsRoot
  * @param {string} skillName
+ * @param {string} assetsSkillsDir
  */
 function installOneSkill(skillsRoot, skillName, assetsSkillsDir) {
   const source = path.join(assetsSkillsDir, skillName);
@@ -37,11 +44,31 @@ function installOneSkill(skillsRoot, skillName, assetsSkillsDir) {
   fs.mkdirSync(skillsRoot, { recursive: true });
   const target = path.join(skillsRoot, skillName);
   if (fs.existsSync(target)) {
-    const backup = `${target}.bak.${Date.now()}`;
-    fs.renameSync(target, backup);
+    fs.rmSync(target, { recursive: true, force: true });
   }
   copyDir(source, target);
   return target;
+}
+
+/**
+ * 清理历史安装留下的 AutoTestFlow Skill 备份目录。
+ * @param {string} skillsRoot
+ */
+function cleanupOwnSkillBackups(skillsRoot) {
+  if (!fs.existsSync(skillsRoot)) {
+    return;
+  }
+  for (const entry of fs.readdirSync(skillsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const isOwnBackup = OWN_SKILLS.some(
+      (name) => entry.name === name || entry.name.startsWith(`${name}.bak.`)
+    );
+    if (isOwnBackup && entry.name.includes('.bak.')) {
+      fs.rmSync(path.join(skillsRoot, entry.name), { recursive: true, force: true });
+    }
+  }
 }
 
 /**
@@ -56,6 +83,9 @@ export function installSkills(env = process.env) {
   const installed = [];
   const cursorDir = getCursorSkillsDir(env);
   const codexDir = getCodexSkillsDir(env);
+
+  cleanupOwnSkillBackups(cursorDir);
+  cleanupOwnSkillBackups(codexDir);
 
   for (const name of OWN_SKILLS) {
     installed.push({
@@ -79,6 +109,7 @@ export function installSkills(env = process.env) {
 export function uninstallSkills(env = process.env) {
   const removed = [];
   for (const root of [getCursorSkillsDir(env), getCodexSkillsDir(env)]) {
+    cleanupOwnSkillBackups(root);
     for (const name of OWN_SKILLS) {
       const target = path.join(root, name);
       if (fs.existsSync(target)) {

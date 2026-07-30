@@ -28,7 +28,8 @@ function printHelp() {
   version     显示版本
 
 组员安装示例:
-  npx --yes --registry=http://npm.ans.chaoxing.com/ @chaoxing/autotest-flow@beta install
+  仓库根目录: npm run setup
+  或: npx --yes --registry=http://npm.ans.chaoxing.com/ @chaoxing/autotest-flow@beta install
 `);
 }
 

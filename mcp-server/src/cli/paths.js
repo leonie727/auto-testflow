@@ -72,6 +72,11 @@ export function getCodexHome(env = process.env) {
   return path.join(getUserHome(env), '.codex');
 }
 
+/** Codex 用户配置文件 */
+export function getCodexConfigPath(env = process.env) {
+  return path.join(getCodexHome(env), 'config.toml');
+}
+
 export function getCodexSkillsDir(env = process.env) {
   return path.join(getCodexHome(env), 'skills');
 }

@@ -28,13 +28,16 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 
 2. 调用 `autotest-flow` MCP 的 `read_pm_issue`。
 
-3. PM 读取失败时：
+3. 查看 `externalReferences`，对允许访问的链接调用 `read_pm_reference`。
+   成功内容并入需求分析；失败只记录原因，不阻断正文分析。
+
+4. PM 读取失败时：
    - 输出失败原因
    - 停止任务
    - 不猜测需求内容
    - 不修改代码
 
-4. 读取当前目标测试项目中的规范，优先检查：
+5. 读取当前目标测试项目中的规范，优先检查：
    - `AGENTS.md`
    - `README.md`
    - `package.json`
@@ -43,7 +46,7 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
    - `.cursor/rules`
    - 项目已有测试规范
 
-5. 根据 PM 内容搜索：
+6. 根据 PM 内容搜索：
    - 相同 PM 编号
    - 相同模块
    - 相似业务流程
@@ -56,7 +59,7 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
    - 测试数据
    - 清理和回置方法
 
-6. 识别目标测试项目框架（修改代码前必须完成）：
+7. 识别目标测试项目框架（修改代码前必须完成）：
    1. 先读取目标项目 `package.json` 与目录结构。
    2. 检测到 `@playwright/test` 时使用 Playwright 规则。
    3. 检测到 `puppeteer` 或 `puppeteer-core` 时使用 Puppeteer 规则，并阅读 `references/frameworks/puppeteer.md`。
@@ -67,7 +70,7 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
    7. 无法确认框架时，停止并向用户说明，不得猜测。
    8. 两种框架依赖同时存在时，根据目标测试文件与项目运行入口判断；仍不明确则停止确认。
 
-7. 判断实现路径：
+8. 判断实现路径：
    - 修改已有测试
    - 在已有文件新增 test
    - 新建测试文件
@@ -231,6 +234,14 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 - 数据回置情况：
 - 需要人工确认的内容：
 - 是否执行 Git 操作：否
+
+# 建议回填 PM 评论（草稿）
+
+展示完整评论草稿。默认不调用 `add_pm_comment`。
+
+仅当用户明确回复「确认回填」或「提交评论」后，才可调用写操作，且传入 `confirmed=true`。
+
+用户最初说「处理这个PM」「帮我实现」等，不得视为回填确认。
 ```
 
 ---
@@ -246,3 +257,5 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 7. 当前打开的业务测试项目与 AutoTestFlow 项目必须区分。
 8. 找不到目标项目时先说明，不在错误目录创建测试文件。
 9. 用户未确认实施方案时绝不修改业务代码。
+10. 用户未确认回填时绝不调用 `add_pm_comment`。
+11. 防止同一评论短时间重复提交。

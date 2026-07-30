@@ -3,20 +3,23 @@ import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { loadEnvFile, getPmApiKey } from '../config/env.js';
-import { detectClients } from './process.js';
 import { hasCursorMcp } from './cursor-mcp.js';
-import { hasCodexMcp } from './codex-mcp.js';
+import { hasCodexMcp, hasCodexCli } from './codex-mcp.js';
+import { hasCodexMcpToml } from './codex-toml.js';
 import { skillsInstalled } from './skills-install.js';
 import { runtimeExists } from './runtime.js';
 import { validatePmApiKey } from './pm-validate.js';
 import {
   getAutotestFlowHome,
+  getUserEnvPath,
   getStableCliPath,
   getPackageRoot,
+  getCursorMcpPath,
+  getCodexHome,
 } from './paths.js';
 
 /**
- * @param {{ env?: NodeJS.ProcessEnv }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, cliPath?: string }} [options]
  */
 export async function runDoctor(options = {}) {
   const env = options.env || process.env;
@@ -37,11 +40,21 @@ export async function runDoctor(options = {}) {
 
   const home = getAutotestFlowHome(env);
   add('用户配置目录', fs.existsSync(home), home);
-  add('运行时 CLI', runtimeExists(env), getStableCliPath(env));
+
+  const userEnvPath = getUserEnvPath(env);
+  const packageCli = path.join(getPackageRoot(), 'bin', 'autotest-flow.js');
+  const cliPath =
+    options.cliPath ||
+    (runtimeExists(env) ? getStableCliPath(env) : packageCli);
+  const cliOk = fs.existsSync(cliPath);
+  add('MCP CLI', cliOk, cliOk ? cliPath : `未找到：${cliPath}`);
 
   loadEnvFile();
   const hasKey = Boolean(getPmApiKey());
   add('PM_API_KEY', hasKey, hasKey ? '已配置' : '未配置');
+  if (!hasKey && fs.existsSync(userEnvPath)) {
+    add('密钥文件', null, '存在用户 .env 但未读到 PM_API_KEY');
+  }
 
   if (hasKey) {
     const validation = await validatePmApiKey(getPmApiKey());
@@ -50,15 +63,28 @@ export async function runDoctor(options = {}) {
     add('PM 访问', false, '未配置密钥，跳过实访');
   }
 
-  const clients = detectClients(env);
   const cursorMcp = hasCursorMcp(env);
-  add('Cursor MCP 配置', cursorMcp, cursorMcp ? '存在 autotest-flow' : '未找到');
+  add(
+    'Cursor MCP',
+    cursorMcp,
+    cursorMcp ? `存在 autotest-flow（${getCursorMcpPath(env)}）` : '未找到 autotest-flow'
+  );
 
-  if (clients.codex) {
-    const codexMcp = hasCodexMcp(env);
-    add('Codex MCP 配置', codexMcp, codexMcp ? '存在 autotest-flow' : '未找到');
+  const codexCli = hasCodexCli(env);
+  const codexToml = hasCodexMcpToml(env);
+  const codexMcp = hasCodexMcp(env);
+  if (codexMcp) {
+    add(
+      'Codex MCP',
+      true,
+      codexCli
+        ? '已配置（CLI 或 config.toml）'
+        : `已通过 config.toml 配置（${path.join(getCodexHome(env), 'config.toml')}）`
+    );
+  } else if (!codexCli && !codexToml) {
+    add('Codex MCP', false, '未找到 autotest-flow（可用 setup 写入 config.toml）');
   } else {
-    add('Codex MCP 配置', null, '未安装 Codex CLI');
+    add('Codex MCP', false, '未找到 autotest-flow');
   }
 
   const cursorSkills = skillsInstalled('cursor', env);
@@ -67,7 +93,7 @@ export async function runDoctor(options = {}) {
   add('Codex Skills', codexSkills, codexSkills ? '已安装' : '缺失');
 
   try {
-    const mcpResult = await probeMcpTools(env);
+    const mcpResult = await probeMcpTools(env, cliPath);
     add('MCP auto_test_flow_status', mcpResult.statusOk, mcpResult.statusDetail);
     add('MCP read_pm_issue', mcpResult.readOk, mcpResult.readDetail);
   } catch (error) {
@@ -98,17 +124,14 @@ export async function runDoctor(options = {}) {
 
   console.error('');
   console.error(`结论：${conclusion}`);
-  return { rows, conclusion };
+  return { rows, conclusion, cliPath };
 }
 
 /**
  * @param {NodeJS.ProcessEnv} env
+ * @param {string} cliPath
  */
-async function probeMcpTools(env) {
-  const cliPath = runtimeExists(env)
-    ? getStableCliPath(env)
-    : path.join(getPackageRoot(), 'bin', 'autotest-flow.js');
-
+async function probeMcpTools(env, cliPath) {
   const transport = new StdioClientTransport({
     command: 'node',
     args: [cliPath, 'mcp'],

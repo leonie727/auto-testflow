@@ -20,8 +20,14 @@ AutoTestFlow 项目规范。Cursor 与 Codex 共用本文，不在平台专属�
 
 ## 项目组成
 
-- **MCP Server**（`mcp-server/`）：读取 PM、提供外部工具能力。
-- **Agent Skills**（`.agents/skills/`）：需求分析与实现工作流。
+- **MCP Server**（`mcp-server/`）：读取 PM、诊断记录保存、提供外部工具能力。
+- **Agent Skills**（`.agents/skills/`）：PM 路由、需求分析、脚本实现、异常验证与分类。
 - **Host Adapters**：Cursor（`.cursor/`）与 Codex（`npm run setup:codex`）接入层。
 
 同一套 MCP Server 与 Skill 供多客户端复用，不要为不同 Host 复制业务逻辑。
+
+核心 Skills：
+
+- `process-pm`：PM 入口路由
+- `analyze-pm-requirement` / `implement-pm-requirement`：需求分析与脚本实现
+- `auto-test-script-development`：已有脚本失败与系统异常验证（勿与新需求实现混淆）

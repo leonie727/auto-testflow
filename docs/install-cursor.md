@@ -1,85 +1,56 @@
 # 在 Cursor 中安装 AutoTestFlow
 
-同一套 MCP Server 与 `.agents/skills` 可被 Cursor 与 Codex 共用。本文仅描述 Cursor 适配步骤。
+同一套 MCP Server 与 Skills 可被 Cursor 与 Codex 共用。推荐在仓库根目录一键安装。
 
 ## 前置条件
 
-- Node.js >= 18
-- 已打开本仓库作为 Cursor Workspace
+- Node.js >= 20
 
-## 步骤
+## 一键安装（推荐）
 
-### 1. 安装依赖
-
-```bash
-cd mcp-server
-npm install
-```
-
-### 2. 初始化本地配置
+在仓库根目录执行：
 
 ```bash
 npm run setup
 ```
 
-若 `mcp-server/.env` 不存在，会从 `.env.example` 复制生成。
+终端会交互完成：
 
-### 3. 填写个人 PM_API_KEY
+1. 安装 `mcp-server` 依赖  
+2. 隐藏输入并验证个人 `PM_API_KEY`  
+3. 写入 `~/.autotest-flow/.env`（不写进项目仓库）  
+4. 安全合并 `~/.cursor/mcp.json`（只更新 `autotest-flow`）  
+5. 配置 Codex（有 CLI 用 CLI；无 CLI 则合并 `config.toml`）  
+6. 安装 AutoTestFlow Skills  
+7. 执行 `doctor` 检查  
 
-编辑 `mcp-server/.env`：
+不需要手动 `cd mcp-server`，也不需要手改 `.env` / MCP 配置。
 
-```env
-PM_API_KEY=你的个人密钥
-PM_BASE_URL=http://pm.chaoxing.com
+## 检查
+
+```bash
+npm run doctor
 ```
 
-不要把真实密钥写入 `.cursor/mcp.json`、文档或代码。
+结论为：`安装正常` / `安装不完整` / `安装失败`。
 
-### 4. 使用项目内 Cursor MCP 配置
-
-确认存在 `.cursor/mcp.json`，内容使用 `node` 与 `${workspaceFolder}` 启动：
-
-```json
-{
-  "mcpServers": {
-    "autotest-flow": {
-      "command": "node",
-      "args": [
-        "${workspaceFolder}/mcp-server/src/index.js"
-      ]
-    }
-  }
-}
-```
-
-### 5. Reload Window
+## Reload Window
 
 在 Cursor 中执行 **Developer: Reload Window**，重新加载 MCP。
 
-### 6. 调用状态工具
-
-在 Agent 对话中调用：
+## 调用验证
 
 - `auto_test_flow_status`
-
-确认服务运行正常。
-
-### 7. 调用需求读取工具
-
-调用：
-
 - `read_pm_issue`（例如 issue=`470985`）
 
-确认可返回结构化需求字段。
-
 ## Skill 调用
-
-公共 Skill 位于：
-
-`.agents/skills/analyze-pm-requirement/SKILL.md`
-
-可直接描述需求，例如：
 
 > 使用 analyze-pm-requirement，分析 PM 470985 的测试影响范围
 
 分析阶段只会给出测试点与修改方案，不会直接改测试项目代码。
+
+## 说明
+
+- 密钥位置：`~/.autotest-flow/.env`（开发仍兼容 `mcp-server/.env`）
+- 加载顺序：`process.env` → `~/.autotest-flow/.env` → `mcp-server/.env`
+- MCP 配置中**不**写入 `PM_API_KEY`

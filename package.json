@@ -1,0 +1,17 @@
+{
+  "name": "auto-testflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AutoTestFlow 仓库根：一键安装 Cursor / Codex MCP 与 Skills",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "doctor": "node scripts/doctor.js",
+    "setup:codex": "node mcp-server/scripts/setup-codex.js",
+    "test": "npm --prefix mcp-server test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -1,8 +1,13 @@
 import { getPmApiKey, getPmBaseUrl, sanitizeErrorMessage } from '../config/env.js';
 import { normalizePmIssue } from '../utils/pm-url.js';
+import {
+  buildExternalReferences,
+  cleanDescriptionPreserveLinks,
+} from '../utils/external-url.js';
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_HTML_LENGTH = 200_000;
+const DEFAULT_VALIDATE_ISSUE_ID = '470985';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -21,14 +26,20 @@ const LOGIN_TEXT_HINTS = [
 ];
 
 /**
+ * 与 read_pm_issue 完全一致的请求头。
+ * @param {string} accept
+ * @param {string} [apiKeyOverride] 传入则用该密钥；否则读配置
  * @returns {Record<string, string>}
  */
-function buildPmHeaders(accept) {
+export function buildPmHeaders(accept, apiKeyOverride) {
   const headers = {
     'User-Agent': USER_AGENT,
     Accept: accept,
   };
-  const apiKey = getPmApiKey();
+  const apiKey =
+    apiKeyOverride !== undefined
+      ? String(apiKeyOverride || '').trim()
+      : getPmApiKey();
   if (apiKey) {
     headers['X-Redmine-API-Key'] = apiKey;
   }
@@ -40,7 +51,7 @@ function buildPmHeaders(accept) {
  * @param {Record<string, string>} headers
  * @returns {Promise<Response>}
  */
-async function fetchWithTimeout(url, headers) {
+export async function fetchWithTimeout(url, headers) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -52,12 +63,36 @@ async function fetchWithTimeout(url, headers) {
     });
   } catch (error) {
     if (error?.name === 'AbortError') {
-      throw new Error('请求超时（15秒），无法访问 PM 需求');
+      const timeoutError = new Error('请求超时（15秒），无法访问 PM 需求');
+      timeoutError.code = 'PM_TIMEOUT';
+      throw timeoutError;
     }
-    throw new Error(`请求失败：${sanitizeErrorMessage(error)}`);
+    const networkError = new Error(`请求失败：${sanitizeErrorMessage(error)}`);
+    networkError.code = 'PM_NETWORK';
+    throw networkError;
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * @param {string} issueId
+ */
+export function buildPmIssueApiUrl(issueId) {
+  const baseUrl = getPmBaseUrl();
+  return `${baseUrl}/issues/${issueId}.json?include=attachments,relations,children`;
+}
+
+/**
+ * @param {string} [issueId]
+ */
+export function resolveValidateIssueId(issueId) {
+  const fromEnv = String(process.env.AUTOTEST_FLOW_VALIDATE_ISSUE || '').trim();
+  const raw = String(issueId || fromEnv || DEFAULT_VALIDATE_ISSUE_ID).trim();
+  if (!/^\d+$/.test(raw)) {
+    throw new Error('验证用 PM 编号无效');
+  }
+  return raw;
 }
 
 /**
@@ -73,23 +108,314 @@ function extractPageTitle(html) {
 }
 
 /**
+ * @param {string} finalUrl
+ * @param {string} [pageTitle]
+ * @param {string} [snippet]
+ */
+function looksLikeLoginPage(finalUrl, pageTitle = '', snippet = '') {
+  const urlLower = String(finalUrl || '').toLowerCase();
+  if (/login|passport|auth/.test(urlLower)) {
+    return true;
+  }
+  const text = `${pageTitle}\n${snippet}`.toLowerCase();
+  return LOGIN_TEXT_HINTS.some((hint) => text.includes(hint.toLowerCase()));
+}
+
+/**
  * @param {{ httpStatus: number, finalUrl: string, pageTitle: string, htmlSnippet: string }} info
  * @returns {boolean}
  */
 function isAuthenticationRequired(info) {
   const { httpStatus, finalUrl, pageTitle, htmlSnippet } = info;
-
   if (httpStatus === 401 || httpStatus === 403) {
     return true;
   }
+  return looksLikeLoginPage(finalUrl, pageTitle, htmlSnippet);
+}
 
-  const urlLower = String(finalUrl || '').toLowerCase();
-  if (/login|passport|auth/.test(urlLower)) {
-    return true;
+/**
+ * 组装安全诊断信息（不含密钥、Cookie、正文、敏感头）。
+ * @param {{ httpStatus?: number|null, finalUrl?: string, contentType?: string, detail: string }} info
+ */
+export function formatPmDiagnosticMessage(info) {
+  const parts = [info.detail];
+  if (info.httpStatus != null) {
+    parts.push(`HTTP ${info.httpStatus}`);
+  }
+  if (info.finalUrl) {
+    parts.push(`URL: ${info.finalUrl}`);
+  }
+  if (info.contentType) {
+    parts.push(`Content-Type: ${info.contentType}`);
+  }
+  return parts.join('；');
+}
+
+/**
+ * 将 PM HTTP 响应分类为可读错误（安装验证与 read_pm_issue 共用）。
+ * @param {{
+ *   httpStatus: number,
+ *   finalUrl: string,
+ *   contentType: string,
+ *   bodyText?: string,
+ *   issueId?: string,
+ *   requestedUrl?: string,
+ * }} info
+ * @returns {{ code: string, message: string, httpStatus: number, finalUrl: string, contentType: string }}
+ */
+export function classifyPmHttpResult(info) {
+  const httpStatus = info.httpStatus;
+  const finalUrl = info.finalUrl || info.requestedUrl || '';
+  const contentType = info.contentType || '';
+  const bodyText = String(info.bodyText || '');
+  const pageTitle = extractPageTitle(bodyText.slice(0, MAX_HTML_LENGTH));
+  const snippet = bodyText.slice(0, 4000);
+  const isHtml =
+    contentType.includes('text/html') ||
+    /^\s*<(!doctype|html|head|body)\b/i.test(bodyText);
+  const isJson = contentType.includes('application/json');
+
+  const base = { httpStatus, finalUrl, contentType };
+
+  if (httpStatus === 401 || httpStatus === 403) {
+    return {
+      ...base,
+      code: 'unauthorized',
+      message: formatPmDiagnosticMessage({
+        ...base,
+        detail: '密钥无效或当前账号无权限',
+      }),
+    };
   }
 
-  const text = `${pageTitle}\n${htmlSnippet}`.toLowerCase();
-  return LOGIN_TEXT_HINTS.some((hint) => text.includes(hint.toLowerCase()));
+  if (
+    (httpStatus >= 300 && httpStatus < 400) ||
+    looksLikeLoginPage(finalUrl, pageTitle, snippet)
+  ) {
+    return {
+      ...base,
+      code: 'auth_ineffective',
+      message: formatPmDiagnosticMessage({
+        ...base,
+        detail: '认证请求未生效（302或最终进入登录页）',
+      }),
+    };
+  }
+
+  if (httpStatus === 404) {
+    return {
+      ...base,
+      code: 'not_found',
+      message: formatPmDiagnosticMessage({
+        ...base,
+        detail: info.issueId
+          ? `验证用的PM不存在或无访问权限（#${info.issueId}）`
+          : '验证用的PM不存在或无访问权限',
+      }),
+    };
+  }
+
+  if (httpStatus === 200 && isHtml) {
+    return {
+      ...base,
+      code: 'html_instead_of_json',
+      message: formatPmDiagnosticMessage({
+        ...base,
+        detail: '验证地址或响应解析错误（200但返回HTML）',
+      }),
+    };
+  }
+
+  if (httpStatus === 200 && !isJson) {
+    return {
+      ...base,
+      code: 'bad_content_type',
+      message: formatPmDiagnosticMessage({
+        ...base,
+        detail: '验证地址或响应解析错误（未返回 JSON）',
+      }),
+    };
+  }
+
+  if (httpStatus < 200 || httpStatus >= 300) {
+    return {
+      ...base,
+      code: 'http_error',
+      message: formatPmDiagnosticMessage({
+        ...base,
+        detail: `PM 请求失败`,
+      }),
+    };
+  }
+
+  return {
+    ...base,
+    code: 'ok',
+    message: '验证成功',
+  };
+}
+
+/**
+ * 发起与 read_pm_issue 相同的 issues JSON 请求。
+ * @param {string} issueId
+ * @param {string} [apiKeyOverride]
+ */
+export async function requestPmIssueJson(issueId, apiKeyOverride) {
+  const apiUrl = buildPmIssueApiUrl(issueId);
+  const response = await fetchWithTimeout(
+    apiUrl,
+    buildPmHeaders('application/json', apiKeyOverride)
+  );
+  const contentType = response.headers.get('content-type') || '';
+  const finalUrl = response.url || apiUrl;
+  const bodyText = await response.text();
+  return {
+    response,
+    apiUrl,
+    finalUrl,
+    contentType,
+    bodyText,
+    httpStatus: response.status,
+  };
+}
+
+/**
+ * 使用给定 API Key 验证能否访问 PM（与 read_pm_issue 同地址、同认证头）。
+ * 不写入配置，不打印密钥。
+ * @param {string} apiKey
+ * @param {{ issueId?: string }} [options]
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   message: string,
+ *   code?: string,
+ *   httpStatus?: number|null,
+ *   finalUrl?: string,
+ *   contentType?: string,
+ *   issueId?: string,
+ * }>}
+ */
+export async function validatePmApiKey(apiKey, options = {}) {
+  const key = String(apiKey || '').trim();
+  if (!key) {
+    return { ok: false, code: 'empty', message: 'API Key 为空' };
+  }
+
+  let issueId;
+  try {
+    issueId = resolveValidateIssueId(options.issueId);
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'bad_issue',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  let result;
+  try {
+    result = await requestPmIssueJson(issueId, key);
+  } catch (error) {
+    if (error?.code === 'PM_TIMEOUT' || error?.name === 'AbortError') {
+      return {
+        ok: false,
+        code: 'timeout',
+        message: 'PM服务响应超时',
+        httpStatus: null,
+        finalUrl: buildPmIssueApiUrl(issueId),
+        issueId,
+      };
+    }
+    return {
+      ok: false,
+      code: 'network',
+      message: formatPmDiagnosticMessage({
+        detail: 'PM服务连接失败',
+        finalUrl: buildPmIssueApiUrl(issueId),
+      }),
+      httpStatus: null,
+      finalUrl: buildPmIssueApiUrl(issueId),
+      issueId,
+    };
+  }
+
+  const classified = classifyPmHttpResult({
+    httpStatus: result.httpStatus,
+    finalUrl: result.finalUrl,
+    contentType: result.contentType,
+    bodyText: result.bodyText,
+    issueId,
+    requestedUrl: result.apiUrl,
+  });
+
+  if (classified.code !== 'ok') {
+    return {
+      ok: false,
+      code: classified.code,
+      message: redactSecret(classified.message, key),
+      httpStatus: classified.httpStatus,
+      finalUrl: classified.finalUrl,
+      contentType: classified.contentType,
+      issueId,
+    };
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(result.bodyText);
+  } catch {
+    return {
+      ok: false,
+      code: 'json_parse',
+      message: formatPmDiagnosticMessage({
+        httpStatus: result.httpStatus,
+        finalUrl: result.finalUrl,
+        contentType: result.contentType,
+        detail: '验证地址或响应解析错误（JSON 解析失败）',
+      }),
+      httpStatus: result.httpStatus,
+      finalUrl: result.finalUrl,
+      contentType: result.contentType,
+      issueId,
+    };
+  }
+
+  if (!payload?.issue || payload.issue.id === undefined || payload.issue.id === null) {
+    return {
+      ok: false,
+      code: 'missing_issue',
+      message: formatPmDiagnosticMessage({
+        httpStatus: result.httpStatus,
+        finalUrl: result.finalUrl,
+        contentType: result.contentType,
+        detail: '验证地址或响应解析错误（缺少 issue 数据）',
+      }),
+      httpStatus: result.httpStatus,
+      finalUrl: result.finalUrl,
+      contentType: result.contentType,
+      issueId,
+    };
+  }
+
+  return {
+    ok: true,
+    code: 'ok',
+    message: '验证成功',
+    httpStatus: result.httpStatus,
+    finalUrl: result.finalUrl,
+    contentType: result.contentType,
+    issueId,
+  };
+}
+
+/**
+ * @param {string} message
+ * @param {string} secret
+ */
+function redactSecret(message, secret) {
+  if (!secret) {
+    return message;
+  }
+  return String(message).split(secret).join('[REDACTED]');
 }
 
 /**
@@ -105,35 +431,12 @@ function textOrNull(value) {
 }
 
 /**
- * 清理需求描述：保留段落与换行，去除脚本/样式等无关内容。
+ * 清理需求描述：保留段落与换行，去除脚本/样式等无关内容，并保留链接。
  * @param {unknown} raw
  * @returns {string|null}
  */
 function cleanDescription(raw) {
-  if (raw === undefined || raw === null) {
-    return null;
-  }
-
-  let text = String(raw);
-  if (!text.trim()) {
-    return null;
-  }
-
-  text = text
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<\/?(?:nav|footer|header|aside|menu)[^>]*>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  return text || null;
+  return cleanDescriptionPreserveLinks(raw);
 }
 
 /**
@@ -288,46 +591,59 @@ export async function readPmIssue(issue) {
   }
 
   const { issueId, url } = normalizePmIssue(issue);
-  const baseUrl = getPmBaseUrl();
-  const apiUrl = `${baseUrl}/issues/${issueId}.json?include=attachments,relations,children`;
 
-  let response;
+  let result;
   try {
-    response = await fetchWithTimeout(
-      apiUrl,
-      buildPmHeaders('application/json')
-    );
+    result = await requestPmIssueJson(issueId);
   } catch (error) {
-    throw new Error(sanitizeErrorMessage(error));
+    if (error?.code === 'PM_TIMEOUT' || error?.name === 'AbortError') {
+      throw new Error('PM服务响应超时');
+    }
+    throw new Error(
+      formatPmDiagnosticMessage({
+        detail: 'PM服务连接失败',
+        finalUrl: buildPmIssueApiUrl(issueId),
+      })
+    );
   }
 
-  if (response.status === 401 || response.status === 403) {
-    throw new Error('PM API 认证失败，请检查 PM_API_KEY 是否有效');
-  }
+  const classified = classifyPmHttpResult({
+    httpStatus: result.httpStatus,
+    finalUrl: result.finalUrl,
+    contentType: result.contentType,
+    bodyText: result.bodyText,
+    issueId,
+    requestedUrl: result.apiUrl,
+  });
 
-  if (response.status === 404) {
-    throw new Error(`需求不存在：#${issueId}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(`读取需求失败，HTTP ${response.status}`);
-  }
-
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    throw new Error('PM 未返回 JSON 接口数据，无法结构化读取需求');
+  if (classified.code !== 'ok') {
+    throw new Error(sanitizeErrorMessage(classified.message));
   }
 
   let payload;
   try {
-    payload = await response.json();
+    payload = JSON.parse(result.bodyText);
   } catch {
-    throw new Error('PM JSON 响应解析失败');
+    throw new Error(
+      formatPmDiagnosticMessage({
+        httpStatus: result.httpStatus,
+        finalUrl: result.finalUrl,
+        contentType: result.contentType,
+        detail: '验证地址或响应解析错误（JSON 解析失败）',
+      })
+    );
   }
 
   const rawIssue = payload?.issue;
   if (!rawIssue || rawIssue.id === undefined || rawIssue.id === null) {
-    throw new Error('PM JSON 响应缺少 issue 数据');
+    throw new Error(
+      formatPmDiagnosticMessage({
+        httpStatus: result.httpStatus,
+        finalUrl: result.finalUrl,
+        contentType: result.contentType,
+        detail: '验证地址或响应解析错误（缺少 issue 数据）',
+      })
+    );
   }
 
   const customFields = rawIssue.custom_fields;
@@ -337,11 +653,14 @@ export async function readPmIssue(issue) {
   const acceptanceCriteria =
     findCustomFieldValue(customFields, /验收|acceptance/i);
 
+  const description = cleanDescription(rawIssue.description);
+  const externalReferences = buildExternalReferences(rawIssue.description);
+
   return {
     issueId: String(rawIssue.id),
     url,
     title: textOrNull(rawIssue.subject),
-    description: cleanDescription(rawIssue.description),
+    description,
     status: textOrNull(rawIssue.status?.name),
     priority: textOrNull(rawIssue.priority?.name),
     assignee: textOrNull(rawIssue.assigned_to?.name),
@@ -350,5 +669,8 @@ export async function readPmIssue(issue) {
     acceptanceCriteria,
     attachments: mapAttachments(rawIssue.attachments),
     relatedIssues: mapRelatedIssues(rawIssue, String(rawIssue.id)),
+    externalReferences,
   };
 }
+
+export { DEFAULT_VALIDATE_ISSUE_ID, USER_AGENT, REQUEST_TIMEOUT_MS };
