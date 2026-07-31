@@ -6,12 +6,17 @@ import {
   getPackageAssetsDir,
 } from './paths.js';
 
+/** 当前安装与 doctor 必需的 Skill */
 const OWN_SKILLS = [
-  'analyze-pm-requirement',
-  'implement-pm-requirement',
   'process-pm',
+  'implement-pm-requirement',
   'auto-test-script-development',
 ];
+
+/** 旧安装遗留 Skill：仅卸载/清理，不再安装或更新 */
+const LEGACY_SKILLS = ['analyze-pm-requirement'];
+
+const CLEANUP_SKILLS = [...OWN_SKILLS, ...LEGACY_SKILLS];
 
 /**
  * @param {string} src
@@ -51,7 +56,7 @@ function installOneSkill(skillsRoot, skillName, assetsSkillsDir) {
 }
 
 /**
- * 清理历史安装留下的 AutoTestFlow Skill 备份目录。
+ * 清理历史安装留下的 AutoTestFlow Skill 备份目录与遗留 Skill。
  * @param {string} skillsRoot
  */
 function cleanupOwnSkillBackups(skillsRoot) {
@@ -62,11 +67,27 @@ function cleanupOwnSkillBackups(skillsRoot) {
     if (!entry.isDirectory()) {
       continue;
     }
-    const isOwnBackup = OWN_SKILLS.some(
+    const isOwnBackup = CLEANUP_SKILLS.some(
       (name) => entry.name === name || entry.name.startsWith(`${name}.bak.`)
     );
     if (isOwnBackup && entry.name.includes('.bak.')) {
       fs.rmSync(path.join(skillsRoot, entry.name), { recursive: true, force: true });
+    }
+  }
+}
+
+/**
+ * 移除遗留 Skill 目录（不再安装，但旧环境可能仍存在）。
+ * @param {string} skillsRoot
+ */
+function removeLegacySkills(skillsRoot) {
+  if (!fs.existsSync(skillsRoot)) {
+    return;
+  }
+  for (const name of LEGACY_SKILLS) {
+    const target = path.join(skillsRoot, name);
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { recursive: true, force: true });
     }
   }
 }
@@ -86,6 +107,8 @@ export function installSkills(env = process.env) {
 
   cleanupOwnSkillBackups(cursorDir);
   cleanupOwnSkillBackups(codexDir);
+  removeLegacySkills(cursorDir);
+  removeLegacySkills(codexDir);
 
   for (const name of OWN_SKILLS) {
     installed.push({
@@ -103,14 +126,14 @@ export function installSkills(env = process.env) {
 }
 
 /**
- * 只删除 AutoTestFlow 自己的 Skill。
+ * 只删除 AutoTestFlow 自己的 Skill（含遗留清理）。
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function uninstallSkills(env = process.env) {
   const removed = [];
   for (const root of [getCursorSkillsDir(env), getCodexSkillsDir(env)]) {
     cleanupOwnSkillBackups(root);
-    for (const name of OWN_SKILLS) {
+    for (const name of CLEANUP_SKILLS) {
       const target = path.join(root, name);
       if (fs.existsSync(target)) {
         fs.rmSync(target, { recursive: true, force: true });
@@ -130,4 +153,4 @@ export function skillsInstalled(client, env = process.env) {
   return OWN_SKILLS.every((name) => fs.existsSync(path.join(root, name, 'SKILL.md')));
 }
 
-export { OWN_SKILLS };
+export { OWN_SKILLS, LEGACY_SKILLS };

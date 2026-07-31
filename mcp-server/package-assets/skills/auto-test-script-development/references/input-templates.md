@@ -85,7 +85,8 @@ PM编号或链接：
 请改用：
 1. process-pm 路由（若从 PM 入口进入）
 2. implement-pm-requirement（需求分析与脚本实现流程）
-必要时可先 analyze-pm-requirement。
+由 process-pm 完成必要分析和路由，确认后进入
+implement-pm-requirement。
 
 【用户约束】
 先输出测试点与实施方案，确认后再改代码。

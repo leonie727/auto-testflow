@@ -38,6 +38,21 @@ function copyDir(src, dest) {
   }
 }
 
+/** Skills 源目录只同步含 SKILL.md 的子目录，跳过 README 等导航文件 */
+function copySkillsDir(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const from = path.join(src, entry.name);
+    if (!fs.existsSync(path.join(from, 'SKILL.md'))) {
+      continue;
+    }
+    copyDir(from, path.join(dest, entry.name));
+  }
+}
+
 function collectFiles(dir, list = []) {
   if (!fs.existsSync(dir)) {
     return list;
@@ -59,7 +74,11 @@ function main() {
       throw new Error(`缺少源目录：${item.from}`);
     }
     rmDir(item.to);
-    copyDir(item.from, item.to);
+    if (item.kind === 'skills') {
+      copySkillsDir(item.from, item.to);
+    } else {
+      copyDir(item.from, item.to);
+    }
     console.error(`已复制 ${item.kind} -> ${path.relative(packageRoot, item.to)}`);
   }
 

@@ -45,9 +45,9 @@ npm run doctor
 
 ## Skill 调用
 
-> 使用 analyze-pm-requirement，分析 PM 470985 的测试影响范围
+> 使用 process-pm，分析 PM 470985 的测试影响范围，不要修改代码
 
-分析阶段只会给出测试点与修改方案，不会直接改测试项目代码。
+`process-pm` 的仅分析路径会给出测试点与修改方案，不会直接改测试项目代码。
 
 ## 说明
 

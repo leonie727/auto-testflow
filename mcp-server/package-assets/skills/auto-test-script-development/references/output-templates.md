@@ -47,12 +47,54 @@
 用例：
 场景：
 问题分类：SCRIPT_CONFIRMED
+verification_status：code_completed | verified | failed | blocked
 根因：
 修改文件：
 修改内容：
 验证命令：
 验证结果：
-结论：脚本问题已做最小修补。
+结论：
+```
+
+`verification_status` 约束：
+
+- `code_completed`：代码已改，尚未真实运行通过；结论不得写「验证通过」「已解决」「完成度 100%」
+- `verified`：目标脚本已真实运行并通过
+- `failed`：已运行但未通过
+- `blocked`：系统/数据/环境阻塞，未完成验证
+
+---
+
+## PM 评论格式（`pm_comment_format`）
+
+默认 `brief`。仅当用户明确说「全面版 / 详细回填 / detailed」或传入 `format=detailed` 时用 `detailed`。  
+全面版**只复用**当前流程已有分析与运行结果，禁止为扩写再次读取 PM、脚本或项目资料；控制篇幅，同一场景不重复描述。
+
+### 简洁版（brief，默认）
+
+```text
+【自动化结果】
+PM：
+脚本：
+verification_status：code_completed | verified | failed | blocked
+摘要：
+结论：
+下一步：
+```
+
+### 全面版（detailed）
+
+```text
+【自动化结果-全面版】
+PM：
+脚本路径：
+覆盖场景：（条目化，不重复）
+实现说明：（基于已有修改摘要，不重读代码）
+真实运行结果：（命令、通过/失败/阻塞、关键证据；未运行则写未运行）
+限制或风险：
+verification_status：code_completed | verified | failed | blocked
+结论：（未 verified 时禁止「验证通过」「已解决」「完成度 100%」）
+下一步：
 ```
 
 ---

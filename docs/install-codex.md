@@ -37,8 +37,9 @@ npm run doctor
 
 ## 使用 Skill
 
-- `$analyze-pm-requirement`
-- `$implement-pm-requirement`
+- `$process-pm`（PM 入口、仅分析、路由）
+- `$implement-pm-requirement`（确认方案后实现）
+- `$auto-test-script-development`（已有脚本失败 / 系统异常验证）
 
 ## 说明
 

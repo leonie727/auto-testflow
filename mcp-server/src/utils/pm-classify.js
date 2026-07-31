@@ -19,7 +19,7 @@ export const PM_ROUTES = {
   },
   [PM_TASK_TYPES.REQUIREMENT_CHANGE]: {
     skill: 'implement-pm-requirement',
-    label: '需求分析后进入脚本实现流程',
+    label: 'process-pm 分析确认后进入脚本实现流程',
     analyzeFirst: true,
   },
   [PM_TASK_TYPES.AUTOMATION_FAILURE]: {
@@ -31,8 +31,8 @@ export const PM_ROUTES = {
     label: '系统异常验证流程',
   },
   [PM_TASK_TYPES.ANALYSIS_ONLY]: {
-    skill: 'analyze-pm-requirement',
-    label: '需求分析流程',
+    skill: 'process-pm',
+    label: 'process-pm 需求分析流程',
   },
 };
 

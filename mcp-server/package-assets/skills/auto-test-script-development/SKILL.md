@@ -14,15 +14,22 @@ description: >-
 
 遵循项目根目录 `AGENTS.md`。永不输出 `PM_API_KEY`、Cookie、密码或完整敏感请求头。
 
-输入模板见 [input-templates.md](./references/input-templates.md)。  
-分类规则见 [issue-classification.md](./references/issue-classification.md)。  
-输出模板见 [output-templates.md](./references/output-templates.md)。
+### References 按模式读取（禁止默认全量加载）
+
+Skill 被激活时**不得**预先读取全部 `references/`。默认最多读 **一份**；仅当任务明确跨越两个模式时才允许读第二份。已获得模板或分类结果则直接复用，不得重读。普通脚本修补若不涉及输入整理、异常分类或 PM 回填，可不读任何 reference。
+
+| 模式 | 允许读取的 reference | 说明 |
+| --- | --- | --- |
+| `TRIAGE` / 输入整理 | [input-templates.md](./references/input-templates.md) | 仅整理失败输入时 |
+| `CLASSIFY` / 异常分类 | [issue-classification.md](./references/issue-classification.md) | 判定 SYSTEM/SCRIPT/DATA/ENVIRONMENT/UNCONFIRMED 时 |
+| `REPORT` / PM 回填 / 评论生成（含 brief 与 detailed） | [output-templates.md](./references/output-templates.md) | 只读这一份，不另读其他 reference |
+| `TRACE` / `MANUAL_VERIFY` / `PATCH` / `REVIEW` / `RECORD` / `EXPLAIN` | 无（除非同时进入上表模式） | 依赖本 SKILL 正文与已有上下文 |
 
 ---
 
 ## 判断工作模式
 
-根据用户当前目标选择一个主模式；任务跨阶段时，按实际进度切换并明确当前模式。
+根据用户当前目标选择一个主模式；任务跨阶段时，按实际进度切换并明确当前模式。切换模式后再按上表读取对应 reference，不要一次读齐。
 
 | 模式 | 使用条件 | 主要输出 |
 | --- | --- | --- |
@@ -140,7 +147,7 @@ UNCONFIRMED → MORE_EVIDENCE_REQUIRED
 | `ENVIRONMENT` | 禁止修改 | `save_test_issue_record` | 记录环境证据 |
 | `UNCONFIRMED` | 禁止修改 | 可选记录缺口 | 仅分析，暂不改代码 |
 
-详细正反证据见 [issue-classification.md](./references/issue-classification.md)。
+正反证据以当前已读的 classification 规则为准；若尚未读取且处于 `CLASSIFY`，再读 [issue-classification.md](./references/issue-classification.md)，勿连带加载其他 reference。
 
 ### 6. SCRIPT 修补流程
 
@@ -154,7 +161,13 @@ UNCONFIRMED → MORE_EVIDENCE_REQUIRED
 6. 不用固定等待、扩大 timeout、吞异常或 `skip` 掩盖失败。
 7. 不做无关重构、全文件格式化或新增依赖。
 8. 修改后检查 diff、临时日志、副作用、数据清理和资源清理。
-9. 运行目标测试；通过后输出【脚本修复说明】。
+9. 代码完成后 `verification_status=code_completed`。目标运行意图（同一任务内已确认或拒绝后**不得再问**）：
+   - 用户已明确要求运行 / headed / debug → **直接**只跑本次目标脚本，不再询问。
+   - 用户已明确要求不运行 / 只改代码 → 保持 `code_completed`，**直接结束**运行步骤，不再询问。
+   - 用户未表达运行意图 → **只询问一次**：「脚本已完成，是否以 headed 模式运行目标脚本进行验证？」
+10. 运行时**只跑本次目标脚本**（不跑全量）：Playwright 优先 headed；Puppeteer 用项目现有入口，不自造命令。
+11. 未运行或非 `verified`：不得声称验证通过。
+12. 运行通过 → `verified`；运行失败 → `failed`；系统/数据/环境阻塞 → `blocked`。再输出【脚本修复说明】。
 
 ### 7. 诊断记录
 
@@ -166,15 +179,17 @@ UNCONFIRMED → MORE_EVIDENCE_REQUIRED
 
 ### 8. PM 回填
 
-系统问题和数据问题完成验证后：
+系统/数据问题完成验证后，或 SCRIPT 修补产生可回填结果时：
 
-1. 用 `build_pm_comment_draft` 或固定通报正文生成 **PM 评论草稿**。
-2. 向用户展示完整草稿。
-3. **默认不提交**。
-4. 仅当用户明确回复「确认回填」或「提交评论」后，才调用 `add_pm_comment`（`confirmed=true`）。
-5. 不自动修改 PM 状态、负责人、优先级、完成度。
-6. 相同评论短时间重复提交由工具阻止；被拒时说明原因，不强行再写。
-7. 「处理这个PM」「分析一下」「帮我看下」**不能**视为回填确认。
+1. **复用**当前流程已有分析与运行结果，按 `pm_comment_format`（默认 `brief`）生成**一次**评论预览。若需模板且未读过，仅在 `REPORT` 模式下读取 [output-templates.md](./references/output-templates.md)（brief/detailed 均只读这一份）。可用 `build_pm_comment_draft` 作简洁骨架，detailed 在骨架上扩写，**禁止**为全面版再次读 PM/脚本/项目。
+2. 展示预览后**只询问一次**是否回填。
+3. **默认不提交**。仅当用户明确回复「确认回填」或「提交评论」后，才调用 `add_pm_comment`（`confirmed=true`）。
+4. 不自动修改 PM 状态、负责人、优先级、完成度。
+5. 相同评论短时间重复提交由工具阻止；被拒时说明原因，不强行再写。
+6. 「处理这个PM」「分析一下」「帮我看下」**不能**视为回填确认。
+7. 未运行或非 `verified` 时，评论结论禁止「验证通过」「已解决」「完成度 100%」。
+
+Token 控制：一次分析、一次修改、一次目标运行、一次评论生成；正常只输出修改摘要、目标脚本路径、运行询问、运行结果、PM 评论预览。
 
 ---
 
@@ -189,6 +204,8 @@ UNCONFIRMED → MORE_EVIDENCE_REQUIRED
 测试文件：
 问题分类：
 分类门禁：
+verification_status：code_completed | verified | failed | blocked | （未改代码则无）
+pm_comment_format：brief | detailed
 已确认事实：
 审计推断：
 证据：
@@ -208,15 +225,15 @@ PM 评论草稿：
 
 结果表述：
 
-| 实际状态 | 允许表述 |
-| --- | --- |
-| 只完成分析 | 已分析，尚未修改 |
-| 已修改但未运行 | 已修改，待验证 |
-| 已运行但失败 | 已运行，目标仍失败 |
-| 已运行并通过 | 目标测试已运行并通过，修复完成 |
-| 环境阻塞 | 已修改或已分析，因环境限制无法验证 |
+| 实际状态 | verification_status | 允许表述 |
+| --- | --- | --- |
+| 只完成分析 | （无） | 已分析，尚未修改 |
+| 已修改但未运行 | `code_completed` | 已修改，待验证 |
+| 已运行但失败 | `failed` | 已运行，目标仍失败 |
+| 已运行并通过 | `verified` | 目标测试已运行并通过，修复完成 |
+| 环境/系统/数据阻塞 | `blocked` | 已修改或已分析，因环境限制无法验证 |
 
-只有“已运行并通过”才能写“修复完成”。没有修改时，修改位置和修改内容明确写“无”。
+只有 `verified` 才能写「修复完成 / 验证通过」。没有修改时，修改位置和修改内容明确写“无”。
 
 ---
 
@@ -224,9 +241,9 @@ PM 评论草稿：
 
 | 场景 | 应使用 |
 | --- | --- |
-| 新 PM / 新测试用例 / 新需求实现 | `implement-pm-requirement`（可先 `analyze-pm-requirement`） |
-| 已有需求变更 | 先 `analyze-pm-requirement`，确认后 `implement-pm-requirement` |
+| 新 PM / 新测试用例 / 新需求实现 | `process-pm` 路由后进入 `implement-pm-requirement` |
+| 已有需求变更 | `process-pm` 分析并确认后进入 `implement-pm-requirement` |
 | 已有脚本失败 / 系统异常验证 / 线上失败本地成功 | **本 Skill** |
-| 未指明流程的 PM 入口 | `process-pm` 先路由，再进入对应 Skill |
+| 未指明流程的 PM 入口 | `process-pm` |
 
 禁止在其他 Skill 中复制本文件全文；需要时引用本 Skill 名称即可。
