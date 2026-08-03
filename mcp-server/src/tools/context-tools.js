@@ -5,10 +5,11 @@ import {
   getTaskContext,
   getTaskContextView,
   patchTaskContext,
+  completeTaskStage,
   writeContextArtifact,
   TaskContextError,
 } from '../context/task-context-service.js';
-import { TASK_CONTEXT_VIEWS } from '../context/task-context-schema.js';
+import { TASK_CONTEXT_VIEWS, TASK_STAGE } from '../context/task-context-schema.js';
 
 /**
  * @param {unknown} error
@@ -137,6 +138,32 @@ export function handleWriteTaskContextArtifact(args, env = process.env) {
 }
 
 /**
+ * 阶段级一次性提交实现/验证结果（Lite 路径默认终点）。
+ * @param {{
+ *   context_id: string,
+ *   expected_revision: number,
+ *   stage: string,
+ *   implementation?: object,
+ *   verification?: object,
+ *   run_result?: string|object,
+ * }} args
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function handleCompleteTaskStage(args, env = process.env) {
+  return completeTaskStage(
+    args.context_id,
+    {
+      expected_revision: args.expected_revision,
+      stage: args.stage,
+      implementation: args.implementation,
+      verification: args.verification,
+      run_result: args.run_result,
+    },
+    env
+  );
+}
+
+/**
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
  */
 export function registerContextTools(server) {
@@ -144,9 +171,9 @@ export function registerContextTools(server) {
     'create_task_context',
     {
       description:
-        '创建 Task Context。完整 PM 等原始数据请放 pm_snapshot（写入 artifact），主 Context 只存结构化结论。返回 context_id 与 revision。',
+        '创建 Task Context。pm_snapshot 存完整原文到 artifact；主文件只写结构化结论。返回 context_id/revision。',
       inputSchema: {
-        context_id: z.string().optional().describe('可选；默认自动生成'),
+        context_id: z.string().optional(),
         task: sectionObject,
         source: sectionObject,
         request: sectionObject,
@@ -158,10 +185,7 @@ export function registerContextTools(server) {
         verification: sectionObject,
         pm_update: sectionObject,
         controls: sectionObject,
-        pm_snapshot: z
-          .unknown()
-          .optional()
-          .describe('完整 PM 原始结果；写入 artifact，主文件仅保留 pm_snapshot_ref'),
+        pm_snapshot: z.unknown().optional(),
       },
     },
     async (args) => {
@@ -177,17 +201,16 @@ export function registerContextTools(server) {
     'get_task_context_view',
     {
       description:
-        '按 View 投影读取 Task Context，必须指定 view。不返回完整 context.json，不返回 artifact 正文。',
+        '按 view 投影读取 Context（无完整正文/artifact）。普通实施用 IMPLEMENT_LITE_VIEW。',
       inputSchema: {
-        context_id: z.string().describe('Task Context ID'),
-        view: z
-          .enum([
-            TASK_CONTEXT_VIEWS.ROUTE_VIEW,
-            TASK_CONTEXT_VIEWS.IMPLEMENT_VIEW,
-            TASK_CONTEXT_VIEWS.VERIFY_VIEW,
-            TASK_CONTEXT_VIEWS.REPORT_VIEW,
-          ])
-          .describe('ROUTE_VIEW | IMPLEMENT_VIEW | VERIFY_VIEW | REPORT_VIEW'),
+        context_id: z.string(),
+        view: z.enum([
+          TASK_CONTEXT_VIEWS.ROUTE_VIEW,
+          TASK_CONTEXT_VIEWS.IMPLEMENT_VIEW,
+          TASK_CONTEXT_VIEWS.IMPLEMENT_LITE_VIEW,
+          TASK_CONTEXT_VIEWS.VERIFY_VIEW,
+          TASK_CONTEXT_VIEWS.REPORT_VIEW,
+        ]),
       },
     },
     async (args) => {
@@ -200,16 +223,41 @@ export function registerContextTools(server) {
   );
 
   server.registerTool(
-    'patch_task_context',
+    'complete_task_stage',
     {
       description:
-        '局部更新 Task Context。必须传 expected_revision；冲突时返回错误，调用方应重新 get View 后再 patch，禁止整体覆盖。',
+        '一次提交 implementation/verification（可附 run_result→artifact）。同步禁止 status=running；verified 需运行证据。',
       inputSchema: {
         context_id: z.string(),
         expected_revision: z.number().int().positive(),
-        patch: z
-          .record(z.string(), z.unknown())
-          .describe('局部字段，如 { implementation: { status, changed_files, summary } }'),
+        stage: z.enum([
+          TASK_STAGE.IMPLEMENT,
+          TASK_STAGE.VERIFY,
+          TASK_STAGE.IMPLEMENT_AND_VERIFY,
+        ]),
+        implementation: sectionObject,
+        verification: sectionObject,
+        run_result: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+      },
+    },
+    async (args) => {
+      try {
+        return ok(handleCompleteTaskStage(args));
+      } catch (error) {
+        return toolError(error, '提交 Task Context 阶段结果失败');
+      }
+    }
+  );
+
+  server.registerTool(
+    'patch_task_context',
+    {
+      description:
+        '局部 patch（须 expected_revision）。Lite 同步任务优先 complete_task_stage，勿拆成多次 patch。',
+      inputSchema: {
+        context_id: z.string(),
+        expected_revision: z.number().int().positive(),
+        patch: z.record(z.string(), z.unknown()),
       },
     },
     async (args) => {
@@ -224,16 +272,11 @@ export function registerContextTools(server) {
   server.registerTool(
     'write_task_context_artifact',
     {
-      description:
-        '将运行日志、评论草稿等写入指定 Task Context 的 artifacts/，返回 artifact_ref。不回传完整大文本。',
+      description: '写入 artifacts/，只返回 artifact_ref（不回传正文）。Lite 运行结果优先走 complete_task_stage.run_result。',
       inputSchema: {
         context_id: z.string(),
-        name: z
-          .string()
-          .describe('文件名，如 run_result.json / pm_comment_draft.md'),
-        content: z
-          .union([z.string(), z.record(z.string(), z.unknown())])
-          .describe('要写入的文本或 JSON 对象；响应中不会回传该正文'),
+        name: z.string(),
+        content: z.union([z.string(), z.record(z.string(), z.unknown())]),
       },
     },
     async (args) => {

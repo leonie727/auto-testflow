@@ -12,6 +12,10 @@ import { runInstall } from '../src/cli/install.js';
 import { runUninstall } from '../src/cli/uninstall.js';
 import { validatePmApiKey } from '../src/cli/pm-validate.js';
 import { getPackageRoot } from '../src/cli/paths.js';
+import {
+  quarantineConflictingPmFlow,
+  hasPmFlowOverlap,
+} from '../src/cli/skills-install.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const cliPath = path.join(getPackageRoot(), 'bin', 'autotest-flow.js');
@@ -182,4 +186,19 @@ test('doctor CLI 不输出 PM_API_KEY 字面赋值', () => {
   const out = `${result.stdout}\n${result.stderr}`;
   assert.equal(out.includes('doctor-secret-key-xyz'), false);
   assert.match(out, /已配置|未配置|结论/);
+});
+
+test('共存 pm-flow 会被隔离出 skills 根目录', () => {
+  const home = makeTempHome();
+  const skillsRoot = path.join(home, '.codex', 'skills');
+  fs.mkdirSync(path.join(skillsRoot, 'process-pm'), { recursive: true });
+  fs.mkdirSync(path.join(skillsRoot, 'pm-flow'), { recursive: true });
+  fs.writeFileSync(path.join(skillsRoot, 'process-pm', 'SKILL.md'), 'name: process-pm\n');
+  fs.writeFileSync(path.join(skillsRoot, 'pm-flow', 'SKILL.md'), 'name: pm-flow\n');
+  assert.equal(hasPmFlowOverlap(skillsRoot), true);
+  const result = quarantineConflictingPmFlow(skillsRoot);
+  assert.equal(result.quarantined, true);
+  assert.equal(hasPmFlowOverlap(skillsRoot), false);
+  assert.equal(fs.existsSync(path.join(skillsRoot, 'pm-flow', 'SKILL.md')), false);
+  assert.equal(fs.existsSync(path.join(result.to, 'SKILL.md')), true);
 });

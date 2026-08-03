@@ -24,7 +24,7 @@ function mockFetch(handler) {
     globalThis.fetch = original;
   };
 }
-
+  
 test('新 PM 路由到脚本实现，不显示诊断流程', () => {
   const result = classifyPmTask({
     title: '新增选课名单导出',

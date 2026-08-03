@@ -19,6 +19,39 @@ const LEGACY_SKILLS = ['analyze-pm-requirement'];
 const CLEANUP_SKILLS = [...OWN_SKILLS, ...LEGACY_SKILLS];
 
 /**
+ * 与 process-pm 冲突的外部 Skill：从客户端 skills 根移出，避免同匹配普通 PM 任务。
+ * 不删除内容，移到 skills 目录旁的隔离区。
+ * @param {string} skillsRoot
+ * @returns {{ quarantined: boolean, from?: string, to?: string }}
+ */
+export function quarantineConflictingPmFlow(skillsRoot) {
+  const from = path.join(skillsRoot, 'pm-flow');
+  const processPm = path.join(skillsRoot, 'process-pm', 'SKILL.md');
+  if (!fs.existsSync(path.join(from, 'SKILL.md')) || !fs.existsSync(processPm)) {
+    return { quarantined: false };
+  }
+  const quarantineRoot = path.join(path.dirname(skillsRoot), 'skills-quarantined-autotest-flow');
+  const to = path.join(quarantineRoot, 'pm-flow');
+  fs.mkdirSync(quarantineRoot, { recursive: true });
+  if (fs.existsSync(to)) {
+    fs.rmSync(to, { recursive: true, force: true });
+  }
+  fs.renameSync(from, to);
+  return { quarantined: true, from, to };
+}
+
+/**
+ * @param {string} skillsRoot
+ * @returns {boolean}
+ */
+export function hasPmFlowOverlap(skillsRoot) {
+  return (
+    fs.existsSync(path.join(skillsRoot, 'pm-flow', 'SKILL.md')) &&
+    fs.existsSync(path.join(skillsRoot, 'process-pm', 'SKILL.md'))
+  );
+}
+
+/**
  * @param {string} src
  * @param {string} dest
  */
@@ -122,6 +155,22 @@ export function installSkills(env = process.env) {
       path: installOneSkill(codexDir, name, assetsSkillsDir),
     });
   }
+
+  // process-pm 安装后，隔离同目录下会抢占普通 PM 任务的旧 pm-flow
+  for (const [client, root] of [
+    ['cursor', cursorDir],
+    ['codex', codexDir],
+  ]) {
+    const result = quarantineConflictingPmFlow(root);
+    if (result.quarantined) {
+      installed.push({
+        client,
+        skill: 'pm-flow(quarantined)',
+        path: result.to,
+      });
+    }
+  }
+
   return installed;
 }
 

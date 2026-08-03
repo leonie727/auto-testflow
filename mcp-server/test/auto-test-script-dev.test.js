@@ -14,6 +14,7 @@ import {
 import {
   saveTestIssueRecord,
   sanitizeRecordMarkdown,
+  buildStageDiagnosticRecord,
 } from '../src/services/record-service.js';
 import { addPmComment, clearCommentDedupeCache } from '../src/services/comment-service.js';
 import { installSkills, OWN_SKILLS, skillsInstalled } from '../src/cli/skills-install.js';
@@ -165,6 +166,33 @@ test('sanitizeRecordMarkdown 移除敏感字段', () => {
   assert.equal(cleaned.includes('abc'), false);
   assert.equal(cleaned.includes('a=b'), false);
   assert.equal(cleaned.includes('password=x'), false);
+});
+
+test('complete_task_stage 自动 records 也会脱敏敏感字段', () => {
+  const home = makeTempHome();
+  const env = { AUTOTEST_FLOW_TEST_HOME: home };
+  const draft = buildStageDiagnosticRecord(
+    {
+      context_id: 'ctx-sensitive',
+      task: { issue_id: '900099', title: '敏感样例' },
+      source: { entry: 'process-pm' },
+      request: { user_intent: '验证脱敏 Cookie: session=leak password=x' },
+      project: { name: 'demo', root: '/tmp/demo', framework: 'playwright' },
+      routing: { task_type: '已有脚本失败', reasons: ['SCRIPT_CONFIRMED'], route_skill: 'auto-test-script-development' },
+      analysis: { summary: 'PM_API_KEY=should-redact token=abc123' },
+      implementation: { status: 'code_completed', changed_files: ['a.js'], summary: 'fix' },
+      verification: { status: 'not_run' },
+    },
+    { stage: 'implement' }
+  );
+  const saved = saveTestIssueRecord(draft, env);
+  const content = fs.readFileSync(saved.path, 'utf8');
+  assert.equal(content.includes('should-redact'), false);
+  assert.equal(content.includes('session=leak'), false);
+  assert.equal(content.includes('password=x'), false);
+  assert.equal(content.includes('abc123'), false);
+  assert.match(content, /\[REDACTED\]/);
+  assert.match(content, /contextId: ctx-sensitive/);
 });
 
 test('prepare-package 含新 Skill 且无真实密钥/本机绝对路径', () => {

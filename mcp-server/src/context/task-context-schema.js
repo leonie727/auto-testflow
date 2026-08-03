@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-/** @typedef {'ROUTE_VIEW'|'IMPLEMENT_VIEW'|'VERIFY_VIEW'|'REPORT_VIEW'} TaskContextViewName */
+/** @typedef {'ROUTE_VIEW'|'IMPLEMENT_VIEW'|'IMPLEMENT_LITE_VIEW'|'VERIFY_VIEW'|'REPORT_VIEW'} TaskContextViewName */
 
 export const SCHEMA_VERSION = '1.0.0';
 
@@ -32,8 +32,16 @@ export const RUN_INTENT = {
 export const TASK_CONTEXT_VIEWS = {
   ROUTE_VIEW: 'ROUTE_VIEW',
   IMPLEMENT_VIEW: 'IMPLEMENT_VIEW',
+  IMPLEMENT_LITE_VIEW: 'IMPLEMENT_LITE_VIEW',
   VERIFY_VIEW: 'VERIFY_VIEW',
   REPORT_VIEW: 'REPORT_VIEW',
+};
+
+/** Lite 路径允许的阶段完成类型（不新增工作流阶段枚举到 Context status） */
+export const TASK_STAGE = {
+  IMPLEMENT: 'implement',
+  VERIFY: 'verify',
+  IMPLEMENT_AND_VERIFY: 'implement_and_verify',
 };
 
 const optionalString = z.string().optional();
@@ -138,7 +146,11 @@ export const implementationSectionSchema = z
     /** 实现结果短摘要（非完整脚本） */
     summary: optionalString,
     plan_summary: optionalString,
+    change_strategy: optionalString,
     target_files: optionalStringArray,
+    target_symbols: optionalStringArray,
+    line_hints: optionalStringArray,
+    allowed_files: optionalStringArray,
     changed_files: optionalStringArray,
     reuse: optionalStringArray,
     risks: optionalStringArray,
@@ -287,6 +299,10 @@ export const VIEW_FIELD_MAP = {
     'implementation',
     'controls',
   ],
+  /**
+   * 普通实施最小投影（由 projectImplementLiteView 扁平输出，此处仅作存在性登记）。
+   */
+  IMPLEMENT_LITE_VIEW: ['context_id', 'revision'],
   VERIFY_VIEW: [
     'schema_version',
     'context_id',
@@ -316,6 +332,27 @@ export const VIEW_FIELD_MAP = {
     'controls',
   ],
 };
+
+/**
+ * IMPLEMENT_LITE_VIEW 扁平字段（有值才输出；省略 null/空数组/空对象）。
+ * @type {readonly string[]}
+ */
+export const LITE_FLAT_KEYS = [
+  'view',
+  'context_id',
+  'revision',
+  'issue_id',
+  'project_root',
+  'framework',
+  'target_files',
+  'target_symbols',
+  'line_hints',
+  'allowed_files',
+  'change_strategy',
+  'run_intent',
+  'implementation_status',
+  'verification_status',
+];
 
 /**
  * @param {unknown} value

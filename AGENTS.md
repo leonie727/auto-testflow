@@ -31,3 +31,10 @@ AutoTestFlow 项目规范。Cursor 与 Codex 共用本文，不在平台专属�
 - `process-pm`：PM 入口路由与必要需求分析（仅分析可在本 Skill 内完成）
 - `implement-pm-requirement`：已确认方案后的脚本实现
 - `auto-test-script-development`：已有脚本失败与系统异常验证（勿与新需求实现混淆）
+
+## Skill 加载与 Token
+
+1. `.agents/skills` 是**源码**；`mcp-server/package-assets/skills` 是**打包副本**，运行时不要当第二套 Skill 源。
+2. 业务测试项目只使用 Cursor/Codex **全局安装**的 AutoTestFlow Skills（`autotest-flow install` / `update`）。
+3. 开发本仓库时编辑 `.agents/skills`，改完后 `prepare:package` 并重新 install；避免项目内 Skill 与全局 Skill 同时被 Agent 当作两套生效。
+4. AutoTestFlow 的 PM 入口只有 `process-pm`。`install`/`doctor` 会把 Cursor/Codex skills 目录下与之并存的外部 `pm-flow` 隔离到旁路目录；自动化测试 PM 分析、脚本修复与回填不要走 `pm-flow` CLI 闭环。

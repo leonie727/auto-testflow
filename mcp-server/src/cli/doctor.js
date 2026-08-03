@@ -6,7 +6,11 @@ import { loadEnvFile, getPmApiKey } from '../config/env.js';
 import { hasCursorMcp } from './cursor-mcp.js';
 import { hasCodexMcp, hasCodexCli } from './codex-mcp.js';
 import { hasCodexMcpToml } from './codex-toml.js';
-import { skillsInstalled } from './skills-install.js';
+import {
+  skillsInstalled,
+  hasPmFlowOverlap,
+  quarantineConflictingPmFlow,
+} from './skills-install.js';
 import { runtimeExists } from './runtime.js';
 import { validatePmApiKey } from './pm-validate.js';
 import {
@@ -15,6 +19,8 @@ import {
   getStableCliPath,
   getPackageRoot,
   getCursorMcpPath,
+  getCursorSkillsDir,
+  getCodexSkillsDir,
   getCodexHome,
 } from './paths.js';
 
@@ -91,6 +97,45 @@ export async function runDoctor(options = {}) {
   const codexSkills = skillsInstalled('codex', env);
   add('Cursor Skills', cursorSkills, cursorSkills ? '已安装' : '缺失');
   add('Codex Skills', codexSkills, codexSkills ? '已安装' : '缺失');
+
+  const cursorSkillsDir = getCursorSkillsDir(env);
+  const codexSkillsDir = getCodexSkillsDir(env);
+  const overlapDetails = [];
+  for (const [label, root] of [
+    ['Cursor', cursorSkillsDir],
+    ['Codex', codexSkillsDir],
+  ]) {
+    if (!hasPmFlowOverlap(root)) {
+      continue;
+    }
+    const q = quarantineConflictingPmFlow(root);
+    if (q.quarantined) {
+      overlapDetails.push(`${label}: 已隔离 pm-flow → ${q.to}`);
+    } else {
+      overlapDetails.push(`${label}: 仍同时存在 pm-flow 与 process-pm`);
+    }
+  }
+  const stillOverlap =
+    hasPmFlowOverlap(cursorSkillsDir) || hasPmFlowOverlap(codexSkillsDir);
+  if (stillOverlap) {
+    add(
+      'Skill 重叠',
+      false,
+      `${overlapDetails.join('；') || 'Cursor/Codex'} 仍并存 pm-flow 与 process-pm；自动化测试 PM 只用 process-pm`
+    );
+  } else if (overlapDetails.length > 0) {
+    add(
+      'Skill 重叠',
+      true,
+      `${overlapDetails.join('；')}；process-pm 为 AutoTestFlow 唯一 PM 入口`
+    );
+  } else {
+    add(
+      'Skill 重叠',
+      true,
+      'Cursor/Codex skills 下无 pm-flow 与 process-pm 并存'
+    );
+  }
 
   try {
     const mcpResult = await probeMcpTools(env, cliPath);
