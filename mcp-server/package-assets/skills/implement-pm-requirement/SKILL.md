@@ -39,8 +39,7 @@ get_task_context_view(IMPLEMENT_LITE_VIEW)  // 只读一次
 补充：同文件多目标优先合并最小连续范围；只追直接依赖（imports/fixtures、当前 describe hooks、被调局部方法、测试数据、回置/清理）；全文后仍只改 `allowed_files`/`target_files`。复用项目既有 helper。禁 `waitForTimeout`/固定 sleep、放宽断言、Git 提交、输出密钥。
 
 `run_intent`：`run`→只跑目标脚本；`skip`→不跑；`ask/unknown`→只问一次。  
-提交：`implement_and_verify`（含 `run_result`）或 `implement`（→`not_run`）。revision 冲突则重读 Lite View 再提交一次。服务端保证 `code_completed ≠ verified`。  
-诊断记录由 `complete_task_stage` **自动**写入 `records/`（勿再调 `save_test_issue_record`，保持 2 次 Context 调用）。
+提交：`implement_and_verify`（含 `run_result`）或 `implement`（→`not_run`）。revision 冲突则重读 Lite View 再提交一次。服务端保证 `code_completed ≠ verified`。
 
 方案未确认时先输出简短实施方案（勿复述 Context 摘要），等「确认实施」类回复再改代码；用户已确认方案且 Lite 字段齐则可直接改。
 
@@ -49,7 +48,13 @@ get_task_context_view(IMPLEMENT_LITE_VIEW)  // 只读一次
 缺 `project_root`/`framework`/`target_files` 才读 `IMPLEMENT_VIEW` 并局部补洞 + `patch_task_context`。异步长跑才可写 `running`。  
 **仅用户明确要求**生成/预览/回填 PM 评论时用 `REPORT_VIEW`；须确认后才 `add_pm_comment`。
 
-无 `context_id`：`read_pm_issue`（可加必要外链）→ `create_task_context` → 范围明确后回到 Lite。
+无 `context_id`：`read_pm_issue`（可加必要外链）→ `create_task_context`（移交继续实施时勿 `finalize_record`）→ 范围明确后回到 Lite。
+
+## records 收尾
+
+本轮形成可交付结论并结束、暂停或等待后续处理时留存一次 record；继续实施时中间不重复保存。Agent 只提交本轮已有的短摘要，不读取旧 record、不生成完整 Markdown，也不为留档增加读取、分析、验证或 MCP 调用。
+
+执行：Context 实施任务由 `complete_task_stage` 自动留档（勿再调 `save_test_issue_record`，保持 2 次 Context MCP）；无 Context 时由本轮最终收尾调用一次 `save_test_issue_record`。
 
 ## 输出（短）
 

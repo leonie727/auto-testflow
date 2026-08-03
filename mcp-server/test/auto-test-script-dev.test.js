@@ -14,7 +14,8 @@ import {
 import {
   saveTestIssueRecord,
   sanitizeRecordMarkdown,
-  buildStageDiagnosticRecord,
+  buildRecordSummary,
+  upsertDiagnosticRecord,
 } from '../src/services/record-service.js';
 import { addPmComment, clearCommentDedupeCache } from '../src/services/comment-service.js';
 import { installSkills, OWN_SKILLS, skillsInstalled } from '../src/cli/skills-install.js';
@@ -151,7 +152,9 @@ test('save_test_issue_record 脱敏并保存到 records/YYYY-MM-DD', () => {
   );
 
   assert.equal(result.ok, true);
-  assert.match(result.relativePath.replace(/\\/g, '/'), /^records\/\d{4}-\d{2}-\d{2}\//);
+  assert.ok(result.record_key);
+  assert.equal(result.record_action, 'created');
+  assert.match(String(result.record_ref || result.relativePath).replace(/\\/g, '/'), /^records\/\d{4}-\d{2}-\d{2}\//);
   const content = fs.readFileSync(result.path, 'utf8');
   assert.match(content, /【数据问题通报】/);
   assert.equal(content.includes('should-not-persist-abc'), false);
@@ -171,21 +174,26 @@ test('sanitizeRecordMarkdown 移除敏感字段', () => {
 test('complete_task_stage 自动 records 也会脱敏敏感字段', () => {
   const home = makeTempHome();
   const env = { AUTOTEST_FLOW_TEST_HOME: home };
-  const draft = buildStageDiagnosticRecord(
+  const summary = buildRecordSummary(
     {
       context_id: 'ctx-sensitive',
       task: { issue_id: '900099', title: '敏感样例' },
       source: { entry: 'process-pm' },
       request: { user_intent: '验证脱敏 Cookie: session=leak password=x' },
       project: { name: 'demo', root: '/tmp/demo', framework: 'playwright' },
-      routing: { task_type: '已有脚本失败', reasons: ['SCRIPT_CONFIRMED'], route_skill: 'auto-test-script-development' },
+      routing: {
+        task_type: '已有脚本失败',
+        reasons: ['SCRIPT_CONFIRMED'],
+        route_skill: 'auto-test-script-development',
+      },
       analysis: { summary: 'PM_API_KEY=should-redact token=abc123' },
       implementation: { status: 'code_completed', changed_files: ['a.js'], summary: 'fix' },
       verification: { status: 'not_run' },
     },
+    {},
     { stage: 'implement' }
   );
-  const saved = saveTestIssueRecord(draft, env);
+  const saved = upsertDiagnosticRecord({ summary, contextId: 'ctx-sensitive' }, env);
   const content = fs.readFileSync(saved.path, 'utf8');
   assert.equal(content.includes('should-redact'), false);
   assert.equal(content.includes('session=leak'), false);

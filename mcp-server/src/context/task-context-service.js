@@ -17,8 +17,8 @@ import {
   resolveVerificationStatus,
 } from './task-context-report.js';
 import {
-  buildStageDiagnosticRecord,
-  saveTestIssueRecord,
+  attachRecordSubresult,
+  finalizeContextRecord,
 } from '../services/record-service.js';
 
 const CONTEXT_FILENAME = 'context.json';
@@ -198,6 +198,8 @@ export function writeContextArtifact(contextId, name, content, env = process.env
  *   controls?: object,
  *   artifacts?: Record<string, string|object>,
  *   context_id?: string,
+ *   finalize_record?: boolean,
+ *   record?: Record<string, unknown>,
  * }} [input]
  * @param {NodeJS.ProcessEnv} [env]
  */
@@ -245,7 +247,14 @@ export function createTaskContext(input = {}, env = process.env) {
   }
 
   const saved = writeContextFile(contextId, context, env);
-  return saved;
+  /** @type {Record<string, unknown>} */
+  const result = { ...saved };
+  if (input.finalize_record === true) {
+    attachRecordSubresult(result, () =>
+      finalizeContextRecord(saved, dir, { stage: 'analyzed', record: input.record }, env)
+    );
+  }
+  return result;
 }
 
 /**
@@ -346,6 +355,8 @@ export function getTaskContextView(contextId, view, env = process.env) {
  *   implementation?: Record<string, unknown>,
  *   verification?: Record<string, unknown>,
  *   run_result?: string|object,
+ *   finalize_record?: boolean,
+ *   record?: Record<string, unknown>,
  * }} input
  * @param {NodeJS.ProcessEnv} [env]
  */
@@ -479,23 +490,16 @@ export function completeTaskStage(contextId, input, env = process.env) {
     result.result_ref = ref;
   }
 
-  // Lite/Full 均在服务端落诊断记录，不增加 Agent 的 records MCP 调用
-  try {
-    const draft = buildStageDiagnosticRecord(updated, { stage });
-    const saved = saveTestIssueRecord(
-      {
-        markdown: draft.markdown,
-        category: draft.category,
-        issueId: draft.issueId,
-        title: draft.title,
-        contextId: draft.contextId,
-        project: draft.project,
-      },
-      env
+  // 实施收尾默认内联 upsert records（可用 finalize_record:false 显式关闭）
+  if (input.finalize_record !== false) {
+    attachRecordSubresult(result, () =>
+      finalizeContextRecord(
+        updated,
+        getContextDir(contextId, env),
+        { stage, record: input.record },
+        env
+      )
     );
-    result.record_ref = saved.relativePath;
-  } catch {
-    // 记录失败不阻断阶段提交
   }
 
   return result;
@@ -504,7 +508,12 @@ export function completeTaskStage(contextId, input, env = process.env) {
 /**
  * 局部更新。必须提供 expected_revision；禁止无校验整体覆盖。
  * @param {string} contextId
- * @param {{ expected_revision: number, patch: Record<string, unknown> }} input
+ * @param {{
+ *   expected_revision: number,
+ *   patch: Record<string, unknown>,
+ *   finalize_record?: boolean,
+ *   record?: Record<string, unknown>,
+ * }} input
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function patchTaskContext(contextId, input, env = process.env) {
@@ -515,7 +524,10 @@ export function patchTaskContext(contextId, input, env = process.env) {
     );
   }
 
-  const parsedPatch = parseTaskContextPatch(input);
+  const parsedPatch = parseTaskContextPatch({
+    expected_revision: input.expected_revision,
+    patch: input.patch,
+  });
   if (!parsedPatch.success) {
     throw new TaskContextError(
       'INVALID_PATCH',
@@ -548,7 +560,20 @@ export function patchTaskContext(contextId, input, env = process.env) {
   const saved = writeContextFile(contextId, next, env);
   // 确保原子性：同路径覆盖写入
   void filePath;
-  return saved;
+
+  /** @type {Record<string, unknown>} */
+  const result = { ...saved };
+  if (input.finalize_record === true) {
+    attachRecordSubresult(result, () =>
+      finalizeContextRecord(
+        saved,
+        getContextDir(contextId, env),
+        { stage: 'analyzed', record: input.record },
+        env
+      )
+    );
+  }
+  return result;
 }
 
 /**

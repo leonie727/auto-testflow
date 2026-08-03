@@ -225,32 +225,38 @@ export function registerPmTools(server) {
     'save_test_issue_record',
     {
       description:
-        '将脱敏后的自动化异常诊断 Markdown 记录保存到 ~/.autotest-flow/records/YYYY-MM-DD/。禁止保存 PM_API_KEY、Cookie、密码、完整敏感请求头。',
+        '无 Context 收尾时 upsert 一条脱敏诊断记录。只传本轮短摘要字段；勿传完整 PM/脚本/日志，勿读旧 record。有 Context 时勿调用（由 create/patch/complete 内联）。',
       inputSchema: {
-        markdown: z.string().describe('脱敏后的 Markdown 记录正文'),
-        category: z
-          .string()
-          .optional()
-          .describe('问题分类：SYSTEM / SCRIPT / DATA / ENVIRONMENT / UNCONFIRMED'),
-        issueId: z.string().optional().describe('PM 编号（可选）'),
-        title: z.string().optional().describe('简短标题（可选）'),
-        filename: z.string().optional().describe('可选文件名（不含路径）'),
+        record_key: z.string().optional().describe('已有则透传复用；勿搜索历史文件'),
+        issueId: z.string().optional(),
+        category: z.string().optional(),
+        title: z.string().optional(),
+        conclusion: z.string().optional(),
+        analysis_summary: z.string().optional(),
+        change_summary: z.string().optional(),
+        changed_files: z.array(z.string()).optional(),
+        verification_summary: z.string().optional(),
+        blocked_reason: z.string().optional(),
+        result_ref: z.string().optional(),
+        project: z.string().optional(),
+        user_intent: z.string().optional(),
+        markdown: z.string().optional().describe('兼容旧调用；新流程勿传，由服务端渲染'),
+        filename: z.string().optional(),
       },
     },
-    async ({ markdown, category, issueId, title, filename }) => {
+    async (args) => {
       try {
-        const result = saveTestIssueRecord({
-          markdown,
-          category,
-          issueId,
-          title,
-          filename,
-        });
+        const saved = saveTestIssueRecord(args);
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(result, null, 2),
+              text: JSON.stringify({
+                ok: true,
+                record_key: saved.record_key,
+                record_ref: saved.record_ref,
+                record_action: saved.record_action,
+              }),
             },
           ],
         };

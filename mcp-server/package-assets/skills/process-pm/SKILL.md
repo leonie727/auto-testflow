@@ -36,7 +36,7 @@ AutoTestFlow **唯一** PM 入口。永不输出 `PM_API_KEY`。普通 PM 分析
 - 禁止为写 Context 再读 PM 或广域扫项目。不打印完整 Context。
 
 移交 `implement-pm-requirement`：带 `context_id`；目标明确则标明 **Lite**（`IMPLEMENT_LITE_VIEW`→`complete_task_stage`）；禁止下游默认重读 PM。未要求回填则勿要求 REPORT。  
-实现/验证阶段记录由下游 `complete_task_stage` 自动写入 `records/`；本 Skill 分析停点不强制另存。
+移交继续实施时：**不要** `finalize_record`（中间不留档）。
 
 ## 4. 分析（仅条件触发）
 
@@ -51,3 +51,9 @@ AutoTestFlow **唯一** PM 入口。永不输出 `PM_API_KEY`。普通 PM 分析
 
 默认不写 PM。仅用户明确「确认回填/提交评论」后 `add_pm_comment(confirmed=true)`。  
 未 `verified` 禁止写「验证通过/已解决/完成度100%」。不改状态/指派/优先级/完成度。
+
+## 6. records 收尾
+
+本轮形成可交付结论并结束、暂停或等待后续处理时留存一次 record；继续实施时中间不重复保存。Agent 只提交本轮已有的短摘要，不读取旧 record、不生成完整 Markdown，也不为留档增加读取、分析、验证或 MCP 调用。
+
+执行：分析结束时复用当前流程已有的最终 Context 写操作内联留档（`create_task_context` 或 `patch_task_context` 设 `finalize_record=true`，可选短 `record`）；无 Context 时由本轮最终收尾调用一次 `save_test_issue_record`。

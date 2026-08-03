@@ -201,7 +201,9 @@ test('Lite 一次 complete_task_stage 完成 implement+verify，无需 VERIFY/RE
   assert.equal(completed.implementation_status, 'code_completed');
   assert.equal(completed.verification_status, 'verified');
   assert.ok(completed.result_ref);
+  assert.ok(completed.record_key);
   assert.ok(completed.record_ref);
+  assert.equal(completed.record_action, 'created');
   assert.match(String(completed.record_ref).replace(/\\/g, '/'), /^records\/\d{4}-\d{2}-\d{2}\//);
   assert.equal(completed.patched_keys, undefined);
   assert.equal(JSON.stringify(completed).includes('FULL_RUN_LOG'), false);
@@ -209,7 +211,7 @@ test('Lite 一次 complete_task_stage 完成 implement+verify，无需 VERIFY/RE
   const recordPath = path.join(env.AUTOTEST_FLOW_HOME, completed.record_ref);
   assert.equal(fs.existsSync(recordPath), true);
   const recordText = fs.readFileSync(recordPath, 'utf8');
-  assert.match(recordText, /阶段诊断记录/);
+  assert.match(recordText, /诊断记录/);
   assert.match(recordText, /context_id:/);
   assert.match(recordText, /changed_files:/);
   assert.match(recordText, /category: SCRIPT/);

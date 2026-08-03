@@ -47,6 +47,18 @@ function ok(data) {
 }
 
 const sectionObject = z.record(z.string(), z.unknown()).optional();
+const recordShortSchema = z.record(z.string(), z.unknown()).optional();
+
+/**
+ * @param {Record<string, unknown>} target
+ * @param {Record<string, unknown>} source
+ */
+function copyRecordSubresult(target, source) {
+  if (source.record_key) target.record_key = source.record_key;
+  if (source.record_ref) target.record_ref = source.record_ref;
+  if (source.record_action) target.record_action = source.record_action;
+  if (source.record_warning) target.record_warning = source.record_warning;
+}
 
 /**
  * 供测试与 MCP 复用的精简处理函数。
@@ -71,10 +83,13 @@ export function handleCreateTaskContext(args, env = process.env) {
       artifacts: args.pm_snapshot
         ? { pm_snapshot: args.pm_snapshot }
         : args.artifacts,
+      finalize_record: args.finalize_record === true,
+      record: args.record,
     },
     env
   );
-  return {
+  /** @type {Record<string, unknown>} */
+  const result = {
     context_id: created.context_id,
     revision: created.revision,
     status: created.status,
@@ -83,6 +98,8 @@ export function handleCreateTaskContext(args, env = process.env) {
       pm_snapshot_ref: created.source?.pm_snapshot_ref,
     },
   };
+  copyRecordSubresult(result, created);
+  return result;
 }
 
 /**
@@ -105,16 +122,21 @@ export function handlePatchTaskContext(args, env = process.env) {
     {
       expected_revision: args.expected_revision,
       patch: args.patch,
+      finalize_record: args.finalize_record === true,
+      record: args.record,
     },
     env
   );
-  return {
+  /** @type {Record<string, unknown>} */
+  const result = {
     context_id: updated.context_id,
     revision: updated.revision,
     updated_at: updated.updated_at,
     status: updated.status,
     patched_keys: Object.keys(args.patch || {}),
   };
+  copyRecordSubresult(result, updated);
+  return result;
 }
 
 /**
@@ -158,6 +180,8 @@ export function handleCompleteTaskStage(args, env = process.env) {
       implementation: args.implementation,
       verification: args.verification,
       run_result: args.run_result,
+      finalize_record: args.finalize_record,
+      record: args.record,
     },
     env
   );
@@ -171,7 +195,7 @@ export function registerContextTools(server) {
     'create_task_context',
     {
       description:
-        '创建 Task Context。pm_snapshot 存完整原文到 artifact；主文件只写结构化结论。返回 context_id/revision。',
+        '创建 Task Context。pm_snapshot 存完整原文到 artifact；主文件只写结构化结论。分析收尾可 finalize_record=true 内联 upsert records。',
       inputSchema: {
         context_id: z.string().optional(),
         task: sectionObject,
@@ -186,6 +210,8 @@ export function registerContextTools(server) {
         pm_update: sectionObject,
         controls: sectionObject,
         pm_snapshot: z.unknown().optional(),
+        finalize_record: z.boolean().optional(),
+        record: recordShortSchema,
       },
     },
     async (args) => {
@@ -226,7 +252,7 @@ export function registerContextTools(server) {
     'complete_task_stage',
     {
       description:
-        '一次提交 implementation/verification（可附 run_result→artifact）。同步禁止 status=running；verified 需运行证据。',
+        '一次提交 implementation/verification（可附 run_result→artifact）。默认同轮内联 upsert records。同步禁止 status=running；verified 需运行证据。',
       inputSchema: {
         context_id: z.string(),
         expected_revision: z.number().int().positive(),
@@ -238,6 +264,8 @@ export function registerContextTools(server) {
         implementation: sectionObject,
         verification: sectionObject,
         run_result: z.union([z.string(), z.record(z.string(), z.unknown())]).optional(),
+        finalize_record: z.boolean().optional(),
+        record: recordShortSchema,
       },
     },
     async (args) => {
@@ -253,11 +281,13 @@ export function registerContextTools(server) {
     'patch_task_context',
     {
       description:
-        '局部 patch（须 expected_revision）。Lite 同步任务优先 complete_task_stage，勿拆成多次 patch。',
+        '局部 patch（须 expected_revision）。分析收尾可 finalize_record=true 内联 upsert records；Lite 实施优先 complete_task_stage。',
       inputSchema: {
         context_id: z.string(),
         expected_revision: z.number().int().positive(),
         patch: z.record(z.string(), z.unknown()),
+        finalize_record: z.boolean().optional(),
+        record: recordShortSchema,
       },
     },
     async (args) => {

@@ -56,11 +56,15 @@ IMPLEMENT_LITE_VIEW（一次）→ 渐进读代码并修改 → 按 run_intent �
 禁：VERIFY/REPORT（除非用户要回填）、多次 patch、同步写 `running`、重读 PM、默认 references。  
 `run` 直接跑；`skip` 不跑；未表态只问一次。`code_completed ≠ verified`。
 
-## 记录与回填
+## records 收尾
 
-Lite/`complete_task_stage` 路径：服务端自动写 `records/`，勿额外调用。  
-无 Context 或仅分类通报：可 `save_test_issue_record`（脱敏摘要）。  
-回填：默认不写；仅用户确认后 `add_pm_comment`；未 verified 禁写「验证通过/已解决/100%」。
+本轮形成可交付结论并结束、暂停或等待后续处理时留存一次 record；继续实施时中间不重复保存。Agent 只提交本轮已有的短摘要，不读取旧 record、不生成完整 Markdown，也不为留档增加读取、分析、验证或 MCP 调用。
+
+执行：有 Context 时复用该任务已有的最终 Context 写操作（Lite 实施为 `complete_task_stage`；仅分析/分类结束为带 `finalize_record=true` 的 `create_task_context`/`patch_task_context`）；无 Context 的直接分析或修改由本轮最终收尾调用一次 `save_test_issue_record`。
+
+## 回填
+
+默认不写；仅用户确认后 `add_pm_comment`；未 verified 禁写「验证通过/已解决/100%」。
 
 ## 短输出
 
