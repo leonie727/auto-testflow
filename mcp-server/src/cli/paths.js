@@ -36,6 +36,11 @@ export function getUserEnvPath(env = process.env) {
   return path.join(getAutotestFlowHome(env), '.env');
 }
 
+/** Task Context 根目录：~/.autotest-flow/contexts */
+export function getContextsRoot(env = process.env) {
+  return path.join(getAutotestFlowHome(env), 'contexts');
+}
+
 export function getRuntimePrefix(env = process.env) {
   return path.join(getAutotestFlowHome(env), 'runtime');
 }

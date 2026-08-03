@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerPmTools } from './tools/pm-tools.js';
+import { registerContextTools } from './tools/context-tools.js';
 import { readPackageVersion } from './cli/paths.js';
 
 /**
@@ -46,6 +47,7 @@ export async function startMcpServer() {
   );
 
   registerPmTools(server);
+  registerContextTools(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

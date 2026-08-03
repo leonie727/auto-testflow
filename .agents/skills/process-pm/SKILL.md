@@ -65,7 +65,23 @@ description: >-
 - 判断依据：
 - 已合并外链：
 - 未读取外链及原因：
+- context_id：
+- context_revision：
 ```
+
+---
+
+## 阶段二点二：创建或复用 Task Context
+
+在**本轮已完成的一次** `read_pm_issue`（及必要外链）之后执行；**禁止**为写 Context 再次读取 PM 或广域扫描项目。
+
+1. 若用户/会话已提供有效 `context_id`：调用 `get_task_context_view`（`ROUTE_VIEW`）确认存在且 `status=open`，再按需 `patch_task_context`（带 `expected_revision`）写入本轮路由与结论；**不要**再 `create_task_context`。
+2. 若无有效 `context_id`：调用一次 `create_task_context`：
+   - `pm_snapshot`：放入**完整** `read_pm_issue` 原始结果（及已读外链正文摘要结构）；主 Context 不存完整正文
+   - 主文件只写结构化结论：`task`（编号/标题/类型）、`request`（用户意图、`pm_comment_format`）、`routing`（任务类型/技能/依据）、`project`（名称/框架，若已识别）、`implementation.target_files`（若已定位）、`analysis`（若做过阶段二点五的摘要/覆盖/测试点，勿贴全文）、`references`（外链 url/状态/`content_ref` 或 unread 原因）
+   - `source.entry`=`process-pm`
+3. 单次任务只维护**一个** Context；创建/复用后必须在路由结论中输出 `context_id` 与 `context_revision`。
+4. 移交下游时以 `context_id` 为准；默认不打印完整 Context 或 artifact。
 
 ---
 
@@ -160,16 +176,14 @@ description: >-
 - 仅分析 / 信息不足 / 新需求先分析 → 完成本 Skill「需求分析阶段」后停止
 - 已有脚本失败 / 系统异常验证 → `auto-test-script-development`（先分类再决定是否改脚本）
 
-路由到 `implement-pm-requirement` 时，在**当前会话**移交已获得信息（无需持久化），至少包括已有项：
+路由到 `implement-pm-requirement` 时：
 
-- PM 结构化内容（`read_pm_issue` 结果）
-- 外链读取结果（成功正文与失败原因）
-- 路由结论（任务类型、选择流程、判断依据）
-- 已识别的项目与框架（若有）
-- 已定位的目标文件（若有）
-- 已完成的需求分析或覆盖结论（若做过阶段二点五）
+1. 必须移交 `context_id`（及当前 `revision`）。
+2. 下游应只读 `IMPLEMENT_VIEW`，复用 Context 中已有 PM 结论、项目/框架、目标文件、分析/覆盖结果。
+3. 明确告知：**禁止**再次 `read_pm_issue` / 重复读已处理外链 / 广域重扫；仅当字段为 missing / stale / conflict 时补读，并 `patch_task_context` 写回。
+4. 会话内仍可附带路由要点，但以 Context 为准，避免双轨长期并行。
 
-并明确告知下游：**完整字段禁止再次 `read_pm_issue` / 重复读外链 / 广域重扫；仅补明确缺失项。**
+若阶段二点五在创建 Context 之后才完成分析：用 `patch_task_context` 把 `analysis` / `project` / `implementation.target_files` 写回（带 `expected_revision`），冲突则重新 `get_task_context_view` 后再 patch 一次。
 
 不要在本 Skill 中复制 `auto-test-script-development` 全文；进入该 Skill 执行。  
 不要在本 Skill 中复制 `implement-pm-requirement` 的实施方案模板与代码实现步骤。
@@ -181,22 +195,16 @@ description: >-
 默认**只生成建议回填内容**，不调用写接口。  
 `pm_comment_format` 默认 `brief`；仅当用户明确「全面版 / 详细回填 / detailed」或 `format=detailed` 时用全面版。
 
-1. 可用 `build_pm_comment_draft` / 输出模板生成**一次**草稿（简洁或全面），模板至少覆盖：
-   - 需求分析完成
-   - 脚本编写完成（须带 `verification_status`）
-   - 自动化验证通过（仅 `verified`）
-   - 自动化验证失败
-   - 确认系统问题
-   - 数据/环境问题
-   - 待产品确认
-2. 实现/修补类回填须标明 `verification_status`：`code_completed` | `verified` | `failed` | `blocked`。  
-   未真实运行通过时禁止「验证通过」「已解决」「完成度 100%」。
-3. 全面版字段（脚本路径、覆盖场景、实现说明、真实运行结果、限制或风险、结论）**只复用**下游 Skill 已产出内容，禁止为扩写再次读 PM/脚本/项目。
-4. 下游完成运行后：复用执行结果生成预览 → **询问一次**是否回填 → 用户确认后再写。
-5. 仅当用户明确回复「确认回填」「提交评论」等同义确认后，才调用 `add_pm_comment`，且 `confirmed=true`。
-6. 用户最初说「处理这个PM」「分析一下」「帮我看下」**不能**视为回填确认。
-7. 不自动修改 PM 状态、负责人、优先级和完成度。
-8. 同一评论短时间重复提交应由工具阻止；若被拒，说明原因，不要强行再写。
+实现/验证类回填（已有 `context_id`）：走下游 `REPORT_VIEW` 流程——读 View → 评论写入 artifact → `pm_update` patch → 确认后 `add_pm_comment`；**禁止**为回填再读 PM/脚本/运行日志正文。详见 `implement-pm-requirement` 阶段五。
+
+仅分析等无实现结果时：
+
+1. 可用 `build_pm_comment_draft` 生成**一次**草稿（需求分析完成 / 待产品确认等）。
+2. 未真实运行通过（`verification.status` 非 `verified`）禁止「验证通过」「已解决」「完成度 100%」。
+3. 展示预览并**询问一次**；仅「确认回填 / 提交评论」后 `add_pm_comment`（`confirmed=true`）。
+4. 用户最初说「处理这个PM」「分析一下」「帮我看下」**不能**视为回填确认。
+5. 不自动修改 PM 状态、负责人、优先级和完成度。
+6. 同一评论短时间重复提交应由工具阻止；若被拒，说明原因，不要强行再写。
 
 ---
 

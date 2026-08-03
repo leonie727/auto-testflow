@@ -18,57 +18,47 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 
 与 `process-pm` 的边界：
 
-- 从 PM 入口进入时，由 `process-pm` 完成分类和必要分析，并移交当前会话上下文
-- 用户已提供确认方案时，可直接进入本 Skill 实现
-- 未有足够方案时，返回 `process-pm` 的分析阶段
-- **直接调用本 Skill、无上游上下文时**：按下方「独立入口」完整读取与分析，能力不变
+- 从 PM 入口进入时，由 `process-pm` 创建/复用 Task Context，并移交 `context_id`
+- 本 Skill **只读** `get_task_context_view(view=IMPLEMENT_VIEW)`，不读完整 Context / artifact / 完整 PM
+- 用户已提供确认方案时，可直接进入实现；未有足够方案时，返回 `process-pm` 分析阶段
+- **直接调用本 Skill、无 `context_id` 时**：走「独立入口」，获取必要信息后 **创建** Task Context，后续统一用 Context（禁止长期双轨）
 
 遵循项目根目录 `AGENTS.md`。区分 **AutoTestFlow 仓库** 与 **业务自动化测试项目**，默认只改测试项目；除非用户明确要求，否则不修改 AutoTestFlow 自身代码。
 
 ---
 
-## 阶段〇：上游上下文复用门禁
+## 阶段〇：Task Context（IMPLEMENT_VIEW）
 
-开始阶段一之前，检查当前会话是否已有 `process-pm`（或等价上游）移交的信息。
+1. 若有 `context_id`：调用 `get_task_context_view`，`view` **必须**为 `IMPLEMENT_VIEW`。记下 `revision`。
+2. 复用 View 中已有：`task` / `source`（含 `pm_snapshot_ref`，**不要**主动展开全文除非缺口）/ `project` / `routing` / `analysis` / `implementation.target_files` / `references`。
+3. 字段门禁：
 
-| 已有信息 | 禁止 | 允许 |
-| --- | --- | --- |
-| PM 结构化内容完整 | 再次调用 `read_pm_issue` | 直接复用 |
-| 外链已读（含失败原因） | 对同一 URL 再调 `read_pm_reference` | 仅补未读且 `accessStatus=allowed` 的链接 |
-| 项目、框架、目标文件已识别 | 广域重扫模块/locator/账号/全库相似流程 | 仅对**明确缺失**项做局部搜索或打开已定位文件 |
-| 需求分析或覆盖结论已有 | 重做 Coverage / 复述上游摘要 | 实施方案只补实现细节 |
+| 状态 | 行为 |
+| --- | --- |
+| 已有且可用 | 直接复用；**禁止** `read_pm_issue`、重复外链、广域扫描 |
+| missing / stale / conflict | 仅补该缺口；结果用 `patch_task_context`（`expected_revision`）写回 |
+| patch 返回 revision 冲突 | 重新 `get_task_context_view(IMPLEMENT_VIEW)`，再 patch **一次**；禁止无校验覆盖 |
 
-无上游上下文 → 跳过本表，走「独立入口」完整流程。
+4. 不复述 Context 中已有需求摘要与覆盖分析。单次任务不得另建第二个 Context（独立入口首次创建除外）。
 
 ---
 
 ## 阶段一：读取和分析
 
-### 独立入口（无上游上下文）
+### 有 context_id（推荐）
 
-严格按以下顺序执行：
+1. 完成阶段〇；信息足够则跳到实现路径判断与阶段二。
+2. 仅对 missing / stale / conflict 字段补读或局部搜索，并 patch 回 Context。
 
-1. 识别用户提供的 PM 编号或完整 URL。
-2. 调用 `autotest-flow` MCP 的 `read_pm_issue`。
-3. 查看 `externalReferences`，对允许访问的链接调用 `read_pm_reference`。成功并入分析；失败只记原因，不阻断正文。
-4. PM 读取失败：输出原因并停止；不猜测；不改代码。
-5. 读取目标测试项目规范（`AGENTS.md` / `README.md` / `package.json` / playwright 或 puppeteer 配置 / `.cursor/rules` 等按需）。
-6. 按 PM 搜索：同号脚本、模块、相似流程、公共方法、页面、定位器、数据与回置等。
-7. 识别框架（改代码前必须完成）：
-   1. 读 `package.json` 与目录结构。
-   2. `@playwright/test` → Playwright 规则。
-   3. `puppeteer` / `puppeteer-core` → Puppeteer 规则，并读 `references/frameworks/puppeteer.md`。
-   4. `fanyajw-auto-tests` → 读 `references/projects/fanyajw-auto-tests.md`。
-   5. 禁止跨框架生成 API；无法确认则停止。
-8. 判断实现路径：改已有 / 文件内新增 / 新建文件 / 只补验证 / 暂不适合自动化。
+### 独立入口（无 context_id）
 
-### 有上游上下文时
+严格按以下顺序执行，完成后 **立即** `create_task_context`（`pm_snapshot` 存完整 PM 原始结果；主文件只写结构化结论），后续只使用该 `context_id`：
 
-1. 复用已移交的 PM、外链、路由、项目/框架、目标文件、分析或覆盖结论。
-2. **禁止**再次 `read_pm_issue`；**禁止**重复读取已处理外链；**禁止**广域项目扫描。
-3. 仅对清单中的明确缺口做补充读取或局部搜索（例如缺目标文件路径时才搜同号脚本）。
-4. 框架未识别时才执行独立入口第 7 步；已识别则跳过。
-5. 直接进入实现路径判断与阶段二。
+1. 识别 PM 编号或 URL → `read_pm_issue`（仅此入口允许；失败则停止）。
+2. 必要外链：`read_pm_reference`（失败记原因）。
+3. 按需识别项目/框架/目标文件（最小范围，避免无目标广域扫）。
+4. `create_task_context`：`source.entry`=`implement-pm-requirement`；写入 `task` / `project` / `routing`（若可知）/ `implementation.target_files` / `analysis` 摘要等。
+5. 判断实现路径：改已有 / 文件内新增 / 新建文件 / 只补验证 / 暂不适合自动化。
 
 找不到目标测试项目时先说明，不在错误目录创建测试文件。
 
@@ -76,15 +66,17 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 
 ## 阶段二：实施前确认
 
-修改代码前必须输出实施方案。若存在上游上下文：
+修改代码前必须输出实施方案：
 
-- **不复述**上游已有的 PM 摘要、路由理由、覆盖分析。
+- **不复述** Context / 上游已有的 PM 摘要、路由理由、覆盖分析。
 - **只补充**具体修改位置、实现步骤、可复用方法、风险、验证方式、回置与待确认项。
 
 ```markdown
 # 实施方案
 
-- PM编号：（可引用上游，勿展开全文）
+- context_id：
+- context_revision：
+- PM编号：
 - 测试框架：
 - 推荐实现方式：
 - 预计修改文件：
@@ -95,10 +87,8 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 - 回置方案：
 - 风险点：
 - 待确认事项：
-- 上游已复用：（列出复用的字段，如 PM正文/外链/覆盖结论/目标文件）
+- Context已复用：（列出字段，勿粘贴全文）
 ```
-
-无上游时，可增加「需求标题」等必要摘要字段。
 
 输出方案后立即停止。
 
@@ -169,38 +159,53 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 
 8. Playwright 和 Puppeteer 必须遵循当前项目原有写法，不擅自迁移框架。
 
----
-
-## 阶段四：验证与运行确认
-
-代码修改完成后：
-
-1. 先执行 JavaScript 语法检查；标记 `verification_status=code_completed`。
-2. 目标运行意图（同一任务内已确认或拒绝后**不得再问**）：
-   - 用户已明确要求运行 / headed / debug → **直接**只跑本次目标脚本，不再询问。
-   - 用户已明确要求不运行 / 只改代码 → 保持 `code_completed`，**直接结束**运行步骤，不再询问。
-   - 用户未表达运行意图 → **只询问一次**：「脚本已完成，是否以 headed 模式运行目标脚本进行验证？」
-3. 运行时**只跑本次目标脚本**，不跑全项目；用项目已有 npm script / 入口；Playwright 优先 headed；Puppeteer 用现有方式，不自造命令。
-4. 未运行或非 `verified`：不得写「验证通过 / 已解决 / 完成度 100%」。
-5. 运行通过 → `verified`；失败 → `failed`；系统/数据/环境阻塞 → `blocked`，如实记录。
-6. 未经用户允许不得：`npm install`、更新依赖、`npm audit fix`（含 `--force`）。
-7. 失败时先分类：系统 / 数据 / 环境 / 脚本；无证据不得认定系统问题。
-8. 脚本问题：一次最小稳定修补后，可再跑**同一目标**验证；系统/数据/环境问题不改断言凑绿。
+9. 代码修改完成后，立即 `patch_task_context`（`expected_revision` 为阶段〇/上次成功修订号）：
+   - `implementation.status`：如 `code_completed`
+   - `implementation.changed_files`
+   - `implementation.summary`：短摘要，非完整脚本
+   - 冲突则重新读 `IMPLEMENT_VIEW` 后再 patch 一次
 
 ---
 
-## 阶段五：PM 评论预览与回填
+## 阶段四：验证（VERIFY_VIEW）
 
-1. **复用**本流程已有方案、修改摘要与运行结果，按 `pm_comment_format`（默认 `brief`）**生成一次**评论预览。  
-   - `detailed` 仅当用户明确「全面版 / 详细回填 / detailed」或 `format=detailed`。  
-   - 全面版字段：脚本路径、覆盖场景、实现说明、真实运行结果、限制或风险、结论（见 `auto-test-script-development/references/output-templates.md`）。  
-   - **禁止**为全面版再次读取 PM、脚本或项目资料。
-2. 展示预览后**只询问一次**是否回填；默认不调用 `add_pm_comment`。
-3. 仅当用户明确「确认回填」或「提交评论」后才写入（`confirmed=true`）。
-4. 「处理这个PM」「帮我实现」等不得视为回填确认；不自动改 PM 状态/负责人/优先级/完成度。
-5. 非 `verified` 时结论禁止「验证通过」「已解决」「完成度 100%」。
+有 `context_id` 时（本阶段必走 Context）：
 
-正常输出保持轻量：修改摘要、目标脚本路径、运行询问、运行结果、PM 评论预览。
+1. `get_task_context_view(view=VERIFY_VIEW)`，复用：项目/框架、目标脚本、`implementation` 状态、`request.run_intent`。  
+   **禁止**再次 `read_pm_issue`、重新识别项目或广域扫描。
+2. 运行意图（同任务已确认/拒绝后不再问）：
+   - 明确要求运行 / headed / debug → 直接只跑**本次目标脚本**
+   - 明确不运行 / 只改代码 → 保持 `implementation.status=code_completed`，`patch`：`verification.status=not_run`，结束运行步骤
+   - 未表达意图 → **只问一次**是否以 headed 运行目标脚本
+3. 运行前 `patch_task_context`（`expected_revision`）：  
+   `verification.status=running`，`verification.mode`，`verification.command`
+4. 运行后：完整结果经 `write_task_context_artifact` 写入（如 `run_result.json`），再 patch：  
+   `verification.status=verified|failed|blocked`，`passed`，`failed`，`duration`，`result_ref`，`summary`  
+   **仅目标脚本真实运行通过**才允许 `status=verified`。`code_completed ≠ verified`。
+5. patch 冲突：重新读 `VERIFY_VIEW`，最多再 patch **一次**；禁止整体覆盖。
+6. `not_run` / `failed` / `blocked`：禁止输出「验证通过」；未 `verified` 禁止把 PM 说成已解决或完成度 100%。
+7. 只跑目标脚本；Playwright 优先 headed；Puppeteer 用项目现有入口。
+
+无 `context_id` 的遗留路径：先按阶段一独立入口创建 Context，再进入本阶段。
+
+---
+
+## 阶段五：PM 评论（REPORT_VIEW）
+
+需要回填时：
+
+1. `get_task_context_view(view=REPORT_VIEW)`。**禁止**重读 PM、脚本、项目或运行日志正文；`detailed` 只改格式，不触发再分析。
+2. 用 REPORT_VIEW 结构化字段生成 **一次** brief（默认）或 detailed 评论。
+3. `write_task_context_artifact` 写入评论全文（如 `pm_comment_draft.md`），响应只留 `artifact_ref`。
+4. `patch_task_context`：  
+   `pm_update.status=draft_ready`，`format`，`draft_ref`，`confirmed=false`
+5. 展示预览并**只问一次**是否回填。
+6. 用户确认「确认回填 / 提交评论」后才调用 `add_pm_comment`（`confirmed=true`）；成功后再 patch：  
+   `pm_update.status=updated`，`confirmed=true`，`updated=true`
+7. 用户拒绝：`pm_update.status=cancelled`，不再问，不调用回填工具。
+8. patch 冲突：重读 `REPORT_VIEW` 后最多再试一次。
+
+正常输出保持轻量：修改摘要、目标脚本路径、运行询问/结果、PM 评论预览、`context_id`。
 
 ---
 
@@ -209,36 +214,33 @@ description: 根据指定 PM 需求，在当前 Playwright 或 Puppeteer 项目�
 ```markdown
 # 实现结果
 
+- context_id：
+- context_revision：
 - PM编号：
 - 修改文件：
 - 新增文件：
 - 主要实现：
-- 复用内容：
-- verification_status：code_completed | verified | failed | blocked
+- implementation.status：
+- verification.status：not_run | running | verified | failed | blocked
+- pm_update.status：
 - pm_comment_format：brief | detailed
 
 # 验证结果
 
 - 语法检查：
 - 目标测试：（未运行 / 通过 / 失败 / 阻塞）
-- 问题分类：
-- 测试报告：
-- 截图或 Trace：
+- result_ref：
 - 未完成项：
 
 # 注意事项
 
 - 数据回置情况：
-- 需要人工确认的内容：
 - 是否执行 Git 操作：否
 
 # 建议回填 PM 评论（预览）
 
-展示完整评论预览（brief 或 detailed）。默认不调用 `add_pm_comment`。
-
-仅当用户明确回复「确认回填」或「提交评论」后，才可调用写操作，且传入 `confirmed=true`。
-
-用户最初说「处理这个PM」「帮我实现」等，不得视为回填确认。
+展示预览；draft_ref 指向 artifact。默认不调用 `add_pm_comment`。
+仅「确认回填 / 提交评论」后才写入。
 ```
 
 ---
